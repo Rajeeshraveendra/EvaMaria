@@ -23,7 +23,7 @@ async def start(client, message):
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
         buttons = [
             [
-                InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/sources_cods')
+                InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
             ],
             [
                 InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', url=f"https://t.me/{temp.U_NAME}?start=help"),
@@ -45,7 +45,7 @@ async def start(client, message):
             InlineKeyboardButton('➕ 𝙰𝚍𝚍 𝙼𝚎 𝚃𝚘 𝚈𝚘𝚞𝚛 𝙶𝚛𝚘𝚞𝚙𝚜 ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
             ],[
             InlineKeyboardButton('🔍 𝚂𝚎𝚊𝚛𝚌𝚑', switch_inline_query_current_chat=''),
-            InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/sources_cods')
+            InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
             ],[
             InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
             InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
@@ -91,7 +91,7 @@ async def start(client, message):
             InlineKeyboardButton('➕ 𝙰𝚍𝚍 𝙼𝚎 𝚃𝚘 𝚈𝚘𝚞𝚛 𝙶𝚛𝚘𝚞𝚙𝚜 ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
             ],[
             InlineKeyboardButton('🔍 𝚂𝚎𝚊𝚛𝚌𝚑', switch_inline_query_current_chat=''),
-            InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/sources_cods')
+            InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
             ],[
             InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
             InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
@@ -322,8 +322,6 @@ async def delete(bot, message):
         if result.deleted_count:
             await msg.edit('File is successfully deleted from database')
         else:
-            # files indexed before https://github.com/8769ANURAG/EvaMaria/commit/f3d2a1bcb155faf44178e5d7a685a1b533e714bf#diff-86b613edf1748372103e94cacff3b578b36b698ef9c16817bb98fe9ef22fb669R39 
-            # have original file name.
             result = await Media.collection.delete_many({
                 'file_name': media.file_name,
                 'file_size': media.file_size,
