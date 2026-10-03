@@ -2,7 +2,7 @@ import logging
 import asyncio
 from pyrogram import Client, filters, enums
 from database.ia_filterdb import get_search_results
-from info import CUSTOM_FILE_CAPTION, LOG_CHANNEL
+from info import LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,12 @@ async def pm_movie_sender(client, message):
         if not file_id:
             continue
 
-        caption = CUSTOM_FILE_CAPTION.format(file_name=file_name) if CUSTOM_FILE_CAPTION else f"📁 <b>{file_name}</b>"
+        caption = (
+            f"🎬 <b>File Name:</b> <code>{file_name}</code>\n\n"
+            f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
+            f"📥 <b>ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:</b>\n"
+            f"👉 https://t.me/+NoL3OkqPwBtiZjY0"
+        )
 
         try:
             await client.send_cached_media(
