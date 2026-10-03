@@ -1,9 +1,8 @@
-
 import os
 import google.generativeai as genai
 from pyrogram import Client, filters, enums
 
-# Gemini API കീ ക്രമീകരണം
+# Gemini API ക്രമീകരണം
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -27,15 +26,18 @@ model = genai.GenerativeModel(
     system_instruction=system_instruction
 )
 
-@Client.on_message(filters.group & filters.text & ~filters.bot)
+@Client.on_message(filters.group & filters.text)
 async def ai_movie_assistant(client, message):
+    # ബോട്ട് തന്നെ അയക്കുന്ന മെസ്സേജുകൾ ഒഴിവാക്കുന്നു
+    if message.from_user and message.from_user.is_bot:
+        return
+
     text = message.text.strip()
 
     # കമാൻഡുകൾ ഒഴിവാക്കുക
     if text.startswith(("/", "!", "#")):
         return
 
-    # ചോദ്യങ്ങളാണോ എന്ന് പരിശോധിക്കുന്നു
     triggers = [
         "eppo", "eppozha", "release", "ott", "date", "undoo", "undോ", "varum",
         "evide", "netflix", "prime", "hotstar", "review", "ennanu", "ennu", "?"
@@ -43,15 +45,17 @@ async def ai_movie_assistant(client, message):
 
     is_question = (
         "?" in text or
-        (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or
         any(trigger in text.lower() for trigger in triggers)
     )
 
     if not is_question or not GEMINI_API_KEY:
         return
 
-    # ടൈപ്പിംഗ് ആക്ഷൻ കാണിക്കുന്നു
-    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+    # ടൈപ്പിംഗ് സ്റ്റാറ്റസ്
+    try:
+        await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+    except:
+        pass
 
     try:
         response = model.generate_content(text)
