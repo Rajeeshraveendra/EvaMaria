@@ -47,8 +47,8 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാൻ
-@Client.on_message(filters.private & (filters.document | filters.video))
+# 1. ബോട്ടിലേക്ക് അയക്കുന്ന അല്ലെങ്കിൽ ഫോർവേഡ് ചെയ്യുന്ന ഏത് ഫയലും സേവ് ചെയ്യാൻ
+@Client.on_message(filters.private & (filters.document | filters.video), group=-1)
 async def save_direct_files(client, message):
     media = message.document or message.video
     if not media:
@@ -65,6 +65,8 @@ async def save_direct_files(client, message):
 
     if saved:
         await message.reply_text(f"✅ <b>ഫയൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
+    else:
+        await message.reply_text(f"ℹ️ <b>ഈ ഫയൽ ഇതിനകം ഡാറ്റാബേസിൽ ഉണ്ട് അല്ലെങ്കിൽ സേവ് ചെയ്യാൻ കഴിഞ്ഞില്ല.</b>", quote=True)
 
 # 2. ചാനലിൽ പുതിയ ഫയലുകൾ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റും ഒപ്പം MongoDB സേവും
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
@@ -137,9 +139,14 @@ async def auto_post_to_group(client, message):
             "entries": entries
         }
 
-# 3. ചാനലിലോ ബോട്ടിലോ എവിടെ വേണമെങ്കിലും പ്രവർത്തിക്കുന്ന ഇൻഡെക്സ് കമാൻഡ്
-@Client.on_message(filters.command("index"))
+# 3. മെസ്സേജ് ഐഡി വെച്ച് പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനുള്ള അഡ്മിൻ കമാൻഡ്
+@Client.on_message(filters.command("index") & filters.private)
 async def custom_index_command(client, message):
+    user_id = message.from_user.id
+    admin_list = [int(admin) if str(admin).isdigit() else admin for admin in ADMINS] if isinstance(ADMINS, list) else [int(ADMINS)]
+    if user_id not in admin_list:
+        return
+
     args = message.text.split()
     if len(args) < 3:
         return await message.reply_text("ഉപയോഗിക്കേണ്ട രീതി:\n<code>/index 14 306</code>")
@@ -150,20 +157,18 @@ async def custom_index_command(client, message):
     except ValueError:
         return await message.reply_text("നമ്പറുകൾ കൃത്യമായി നൽകുക!")
 
-    # മെസ്സേജ് വന്ന ചാറ്റ് തന്നെയാണ് ടാർഗെറ്റ് ആയി എടുക്കുന്നത്
-    target_chat = message.chat.id if message.chat.id != message.from_user.id else DB_CHANNEL_ID
-
     status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യുന്നു...")
     saved_count = 0
     last_error = None
 
     for msg_id in range(start_id, end_id + 1):
         try:
-            ch_msg = await client.get_messages(target_chat, msg_id)
+            ch_msg = await client.get_messages(DB_CHANNEL_ID, msg_id)
             if ch_msg and (ch_msg.document or ch_msg.video):
                 media = ch_msg.document or ch_msg.video
                 saved = False
                 try:
+                    # media object നേരിട്ട് സേവ് ചെയ്യുന്നു
                     saved = await save_file(media)
                 except Exception as e1:
                     try:
