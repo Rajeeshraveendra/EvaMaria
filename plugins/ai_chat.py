@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import time
 import urllib.request
 from pyrogram import Client, filters, enums
 
@@ -10,17 +11,17 @@ def fetch_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
 
-    # Gemini 1.5 Pro എൻഡ്‌പോയിന്റ്
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+    # നിങ്ങളുടെ പ്രോജക്റ്റിൽ ലഭ്യമായ ഒഫീഷ്യൽ എൻഡ്‌പോയിന്റ്
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
     
     payload = {
         "contents": [{
             "parts": [{
                 "text": (
-                    "You are an AI cinema assistant for the Telegram channel and group 'RRK Movies'. "
-                    "Answer user queries politely, accurately, and concisely (OTT release dates, streaming platforms, cast details). "
-                    "Respond in simple Malayalam, Manglish, or English depending on user query. Keep answers brief with emojis.\n\n"
-                    f"User Query: {prompt}"
+                    "You are an AI assistant for the Telegram channel and movie group 'RRK Movies'. "
+                    "Answer user queries politely, accurately, and concisely (OTT release dates, platforms, cast details). "
+                    "Respond in simple Malayalam, Manglish, or English depending on how the user asks. Keep it crisp.\n\n"
+                    f"User Question: {prompt}"
                 )
             }]
         }]
@@ -35,21 +36,27 @@ def fetch_gemini(prompt: str) -> str:
         }
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=20) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            return res_data["candidates"][0]["content"]["parts"][0]["text"]
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode("utf-8", errors="ignore")
-        return f"⚠️ API Error ({e.code}): {err_msg[:120]}"
-    except Exception as e:
-        return f"⚠️ Connection Error: {str(e)}"
+    # 503 (ഹൈ ഡിമാൻഡ്) വന്നാൽ തനിയെ 2 തവണ കൂടി ട്രൈ ചെയ്യുന്നു
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+                return res_data["candidates"][0]["content"]["parts"][0]["text"]
+        except urllib.error.HTTPError as e:
+            if e.code == 503 and attempt < 2:
+                time.sleep(2)  # 2 സെക്കൻഡ് കാത്തിരുന്ന് വീണ്ടും റിക്വസ്റ്റ് ചെയ്യുന്നു
+                continue
+            err_msg = e.read().decode("utf-8", errors="ignore")
+            return f"⚠️ API Error ({e.code}): {err_msg[:120]}"
+        except Exception as e:
+            return f"⚠️ Connection Error: {str(e)}"
+
+    return "⚠️ AI Server Busy: ദയവായി അല്പം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക."
 
 @Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
 async def ai_movie_assistant(client, message):
     text = (message.text or "").strip()
 
-    # കമാൻഡുകൾ ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
         message.continue_propagation()
         return
@@ -64,7 +71,6 @@ async def ai_movie_assistant(client, message):
         any(trigger in text.lower() for trigger in triggers)
     )
 
-    # ചോദ്യമല്ലെങ്കിൽ ഫയൽ സെർച്ചിലേക്ക് കൈമാറുന്നു
     if not is_question:
         message.continue_propagation()
         return
