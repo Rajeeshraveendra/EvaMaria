@@ -14,17 +14,16 @@ def request_model(model_name: str, prompt: str) -> str:
         "contents": [{
             "parts": [{
                 "text": (
-                    "You are 'RRK Movies Assistant', an expert cinema and OTT guide for a movie Telegram community. "
-                    "When users ask about movie OTT releases, streaming platforms (Netflix, Prime, Hotstar, ManoramaMAX, etc.), "
-                    "or release dates, give a direct, friendly, and complete answer in 2 to 3 sentences. "
-                    "If the official date is not confirmed, state the expected period clearly. "
-                    "Reply naturally in Malayalam or Manglish according to the user's query.\n\n"
+                    "You are 'RRK Movies Assistant', an AI movie guide in a Malayalam Telegram movie group. "
+                    "When users ask about OTT releases, dates, or streaming platforms, answer concisely and completely in 2 to 3 sentences. "
+                    "Make sure your sentences are fully completed without cutting off in the middle. "
+                    "Reply naturally in Malayalam or Manglish according to the user's style.\n\n"
                     f"User Question: {prompt}"
                 )
             }]
         }],
         "generationConfig": {
-            "maxOutputTokens": 600,
+            "maxOutputTokens": 1500,
             "temperature": 0.4
         }
     }
@@ -38,7 +37,7 @@ def request_model(model_name: str, prompt: str) -> str:
         }
     )
 
-    with urllib.request.urlopen(req, timeout=25) as response:
+    with urllib.request.urlopen(req, timeout=30) as response:
         res_data = json.loads(response.read().decode("utf-8"))
         return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
@@ -46,7 +45,6 @@ def fetch_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
 
-    # 503 ഒഴിവാക്കാൻ ഒന്നിലധികം മോഡലുകൾ ട്രൈ ചെയ്യുന്നു
     models = ["gemini-flash-latest", "gemini-1.5-flash-8b", "gemini-2.0-flash"]
     
     last_error = ""
