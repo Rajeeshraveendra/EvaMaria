@@ -14,8 +14,7 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def clean_movie_title(filename):
-    """ഫയൽ നെയിമിൽ നിന്നുള്ള ടാഗുകൾ, സ്പെഷ്യൽ ചിഹ്നങ്ങൾ എന്നിവ മാറ്റി സെർച്ച് കീവേഡ് ഉണ്ടാക്കുന്നു"""
-    # ബ്രാക്കറ്റിലുള്ള [MM], (2026) തുടങ്ങിയവ നീക്കം ചെയ്യുന്നു
+    """സിനിമയുടെ പേര് ഗ്രൂപ്പ് പോസ്റ്റിനായി വൃത്തിയാക്കുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -25,7 +24,6 @@ def clean_movie_title(filename):
     for w in words:
         if any(w.lower().startswith(t) for t in tags):
             break
-        # സ്പെഷ്യൽ ചിഹ്നങ്ങൾ മാറ്റുന്നു
         w_clean = re.sub(r"[^a-zA-Z0-9]", "", w)
         if w_clean:
             clean_words.append(w_clean)
@@ -33,14 +31,7 @@ def clean_movie_title(filename):
     final_title = " ".join(clean_words).strip()
     return final_title if final_title else "Movie"
 
-def get_search_keyword(clean_title):
-    """സെർച്ച് എളുപ്പമാക്കാൻ 'The', 'A' പോലുള്ളവ ഒഴിവാക്കി പ്രധാന വാക്ക് എടുക്കുന്നു"""
-    words = clean_title.split()
-    if len(words) > 1 and words[0].lower() in ["the", "a", "an"]:
-        return " ".join(words[1:3])
-    return " ".join(words[:2]) if words else clean_title
-
-def get_caption_and_buttons(movie_title, entries):
+def get_caption_and_buttons(entries):
     movies_list_text = "\n".join(entries)
     caption = (
         f"<b>Today's Movies :</b>\n"
@@ -50,24 +41,9 @@ def get_caption_and_buttons(movie_title, entries):
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📥 <i>സിനിമ ലഭിക്കാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ബോട്ടിൽ <b>START</b> അമർത്തുക 👇</i>"
+        f"💡 <i>മുകളിലുള്ള ലിങ്കുകളിൽ ക്ലിക്ക് ചെയ്ത് ഫയൽ നേരെ ഡൗൺലോഡ് ചെയ്യാം 👆</i>"
     )
-    
-    bot_username = temp.U_NAME
-    search_term = get_search_keyword(movie_title)
-    encoded_query = urllib.parse.quote_plus(search_term)
-    deep_link = f"https://t.me/{bot_username}?start={encoded_query}"
-    
-    buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📥 Get Movie Files (DM)", url=deep_link)
-        ],
-        [
-            InlineKeyboardButton("⚡ Search in Chat", switch_inline_query_current_chat=search_term)
-        ]
-    ])
-    
-    return caption, buttons
+    return caption
 
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
@@ -80,27 +56,28 @@ async def auto_post_to_group(client, message):
 
     file_name = media.file_name or "New Movie"
     base_title = clean_movie_title(file_name)
-    
-    search_term = get_search_keyword(base_title)
     bot_username = temp.U_NAME
-    encoded_query = urllib.parse.quote_plus(search_term)
-    movie_link = f"https://t.me/{bot_username}?start={encoded_query}"
+
+    # EvaMaria ബോട്ടിൽ ഫയൽ ഡൗൺലോഡ് ആകാൻ ഫയലിന്റെ message id ആണ് ഡീപ്പ്-ലിങ്കിൽ വേണ്ടത്
+    # ചാനൽ ഐഡിയും മെസ്സേജ് ഐഡിയും ചേർത്തുള്ള EvaMaria deep-link ഫോർമാറ്റ്:
+    f_channel = str(message.chat.id).replace("-100", "")
+    file_deep_link = f"https://t.me/{bot_username}?start=file_{f_channel}_{message.id}"
     
-    line_entry = f"🎬 <a href=\"{movie_link}\">{file_name}</a>"
+    line_entry = f"🎬 <a href=\"{file_deep_link}\">{file_name}</a>"
 
     async with LOCK:
+        # നിലവിൽ ഇതേ സിനിമയ്ക്ക് പോസ്റ്റ് ഉണ്ടെങ്കിൽ ആ പോസ്റ്റിലേക്ക് ലിങ്ക് ആഡ് ചെയ്യുന്നു
         if base_title in POST_CACHE:
             data = POST_CACHE[base_title]
             if line_entry not in data["entries"]:
                 data["entries"].append(line_entry)
-                caption, buttons = get_caption_and_buttons(base_title, data["entries"])
+                caption = get_caption_and_buttons(data["entries"])
                 
                 try:
                     await client.edit_message_caption(
                         chat_id=UPDATE_CHANNEL,
                         message_id=data["msg_id"],
                         caption=caption,
-                        reply_markup=buttons,
                         parse_mode=enums.ParseMode.HTML
                     )
                 except Exception as e:
@@ -108,7 +85,7 @@ async def auto_post_to_group(client, message):
             return
 
         entries = [line_entry]
-        caption, buttons = get_caption_and_buttons(base_title, entries)
+        caption = get_caption_and_buttons(entries)
 
         sent_msg = None
         if PICS:
@@ -117,7 +94,6 @@ async def auto_post_to_group(client, message):
                     chat_id=UPDATE_CHANNEL,
                     photo=random.choice(PICS),
                     caption=caption,
-                    reply_markup=buttons,
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as err:
@@ -127,7 +103,6 @@ async def auto_post_to_group(client, message):
             sent_msg = await client.send_message(
                 chat_id=UPDATE_CHANNEL,
                 text=caption,
-                reply_markup=buttons,
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
