@@ -15,6 +15,7 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def get_pure_title(filename):
+    """ഫയൽ നെയിമിൽ നിന്നുള്ള ടാഗുകൾ മാറ്റി ശുദ്ധമായ സിനിമയുടെ പേര് ഉണ്ടാക്കുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -38,25 +39,39 @@ def get_caption_and_buttons(movie_title, entries):
         f"          <b>Released ✅</b>\n"
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📥 <i>സിനിമ ഡൗൺലോഡ് ചെയ്യാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്യുക 👇</i>"
     )
     
+    bot_username = temp.U_NAME
+    bot_chat_link = f"https://t.me/{bot_username}"
+
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=movie_title)]
+        [
+            InlineKeyboardButton("⚡ Search Movie Here ⚡", switch_inline_query_current_chat=movie_title)
+        ],
+        [
+            InlineKeyboardButton("🤖 Go to Bot", url=bot_chat_link)
+        ]
     ])
     
     return caption, buttons
 
-# 1. പുതിയ ഫയലുകൾ ചാനലിൽ വരുമ്പോൾ ഓട്ടോമാറ്റിക് പോസ്റ്റ് & DB സേവ്
+# 1. പുതിയ ഫയൽ ചാനലിൽ വരുമ്പോൾ സ്വയം സേവ് ചെയ്യുകയും ഗ്രൂപ്പിലേക്ക് പോസ്റ്റ് ചെയ്യുകയും ചെയ്യുന്നു
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
     media = message.document or message.video
     if not media:
         return
 
-    # ഫയൽ ഒരേസമയം MongoDB-യിലേക്കും സേവ് ചെയ്യുന്നു
+    # ഫയൽ ഒരേസമയം MongoDB-യിലേക്ക് സേവ് ചെയ്യുന്നു
     try:
         await save_file(media)
+    except TypeError:
+        try:
+            await save_file(client, message)
+        except Exception:
+            pass
     except Exception as err:
         print(f"Save File Error: {err}")
 
@@ -117,7 +132,7 @@ async def auto_post_to_group(client, message):
         }
 
 
-# 2. പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനുള്ള പുതിയ കമാൻഡ്: /scan
+# 2. ചാനലിലെ പഴയ ഫയലുകൾ MongoDB-ലേക്ക് ഇൻഡെക്സ് ചെയ്യാനുള്ള അഡ്മിൻ കമാൻഡ്: /scan
 @Client.on_message(filters.command("scan") & filters.private)
 async def scan_channel_files(client, message):
     user_id = message.from_user.id
@@ -128,17 +143,39 @@ async def scan_channel_files(client, message):
 
     status_msg = await message.reply_text("⏳ ചാനലിലെ പഴയ ഫയലുകൾ സ്കാൻ ചെയ്യുന്നു... ദയവായി കാത്തിരിക്കുക.")
     total_saved = 0
+    scanned_count = 0
 
-    target_channels = CHANNELS if isinstance(CHANNELS, list) else [CHANNELS]
+    target_channels = []
+    if isinstance(CHANNELS, list):
+        target_channels.extend([int(c) for c in CHANNELS])
+    elif CHANNELS:
+        target_channels.append(int(CHANNELS))
+
     for ch_id in target_channels:
         try:
             async for ch_msg in client.get_chat_history(ch_id):
+                scanned_count += 1
                 media = ch_msg.document or ch_msg.video
                 if media:
-                    saved = await save_file(media)
+                    try:
+                        saved = await save_file(media)
+                    except TypeError:
+                        try:
+                            saved = await save_file(client, ch_msg)
+                        except TypeError:
+                            saved = await save_file(ch_msg)
+                        except Exception:
+                            saved = False
+                    except Exception:
+                        saved = False
+                    
                     if saved:
                         total_saved += 1
         except Exception as e:
             print(f"Scan error in {ch_id}: {e}")
 
-    await status_msg.edit_text(f"✅ ഇൻഡെക്സിംഗ് വിജയകരമായി പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത പുതിയ ഫയലുകൾ: <b>{total_saved}</b>")
+    await status_msg.edit_text(
+        f"✅ <b>സ്കാനിംഗ് പൂർത്തിയായി!</b>\n\n"
+        f"📊 ആകെ പരിശോധിച്ച മെസ്സേജുകൾ: <b>{scanned_count}</b>\n"
+        f"📁 പുതുതായി സേവ് ചെയ്ത ഫയലുകൾ: <b>{total_saved}</b>"
+    )
