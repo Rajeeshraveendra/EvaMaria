@@ -5,7 +5,6 @@ import random
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from info import CHANNELS, PICS, ADMINS
-from utils import temp
 from database.ia_filterdb import save_file
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1001452215783"))
@@ -47,49 +46,46 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# ia_filterdb-ൽ കൃത്യമായി സേവ് ആവാൻ മീഡിയ ഒബ്ജക്റ്റ് പാക്ക് ചെയ്യുന്ന ഹെൽപ്പർ ഫംഗ്ഷൻ
+# ഫയൽ സുരക്ഷിതമായി MongoDB-യിൽ സേവ് ചെയ്യുന്ന ഫംഗ്ഷൻ
 async def save_media_to_db(message):
-    media = message.document or message.video or message.audio
+    media = getattr(message, 'document', None) or getattr(message, 'video', None) or getattr(message, 'audio', None)
     if not media:
         return False, "No media"
-    
-    # EvaMaria പ്രതീക്ഷിക്കുന്ന ഫീൽഡുകൾ ചേർക്കുന്നു
+
+    # EvaMaria-യ്ക്ക് ആവശ്യമായ ഫീൽഡുകൾ
     if not hasattr(media, 'file_type'):
         if message.video:
-            media.file_type = "video"
+            setattr(media, 'file_type', 'video')
         elif message.audio:
-            media.file_type = "audio"
+            setattr(media, 'file_type', 'audio')
         else:
-            media.file_type = "document"
-            
+            setattr(media, 'file_type', 'document')
+
     if not hasattr(media, 'caption'):
-        media.caption = message.caption
+        setattr(media, 'caption', message.caption)
 
     try:
         res = await save_file(media)
-        # res എന്നത് (True, 1) അല്ലെങ്കിൽ (False, 0) ആണ്
         if isinstance(res, tuple):
             saved, code = res
             if saved:
                 return True, "Saved"
             elif code == 0:
-                return False, "Already in database"
+                return True, "Already in database"
             else:
-                return False, "Validation error"
+                return False, f"Validation code {code}"
         return bool(res), "Done"
     except Exception as e:
         return False, str(e)
 
 
 # 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാൻ
-@Client.on_message(filters.private & (filters.document | filters.video), group=-1)
+@Client.on_message(filters.private & (filters.document | filters.video))
 async def save_direct_files(client, message):
     saved, msg = await save_media_to_db(message)
     media = message.document or message.video
     if saved:
         await message.reply_text(f"✅ <b>ഡാറ്റാബേസിൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
-    elif msg == "Already in database":
-        await message.reply_text(f"ℹ️ <b>ഈ ഫയൽ ഇതിനകം ഡാറ്റാബേസിൽ ഉണ്ട്:</b>\n<code>{media.file_name}</code>", quote=True)
     else:
         await message.reply_text(f"⚠️ <b>സേവ് എറർ:</b> <code>{msg}</code>", quote=True)
 
