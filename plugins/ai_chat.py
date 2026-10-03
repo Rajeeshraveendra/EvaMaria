@@ -10,6 +10,7 @@ def fetch_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
 
+    # Header വഴിയും URL വഴിയും Auth സപ്പോർട്ട് ചെയ്യുന്ന വിധത്തിൽ മാറ്റുന്നു
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
@@ -28,17 +29,23 @@ def fetch_gemini(prompt: str) -> str:
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY,
+            "Authorization": f"Bearer {GEMINI_API_KEY}"
+        }
     )
 
     try:
         with urllib.request.urlopen(req, timeout=15) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["candidates"][0]["content"]["parts"][0]["text"]
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        return f"⚠️ API Error ({e.code}): {err_body[:150]}"
     except Exception as e:
         return f"⚠️ Error: {str(e)}"
 
-# group=-1 നൽകുന്നത് മെയിൻ ഫിൽട്ടറിന് മുൻപ് തന്നെ പ്രവർത്തിക്കാനാണ്
 @Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
 async def ai_movie_assistant(client, message):
     text = (message.text or "").strip()
@@ -58,7 +65,6 @@ async def ai_movie_assistant(client, message):
         any(trigger in text.lower() for trigger in triggers)
     )
 
-    # ചോദ്യമല്ലെങ്കിൽ സാധാരണ സിനിമ സെർച്ചിലേക്ക് വിടുക
     if not is_question:
         message.continue_propagation()
         return
@@ -68,7 +74,6 @@ async def ai_movie_assistant(client, message):
     except:
         pass
 
-    # പൈത്തൺ ത്രെഡ് വഴി Gemini കോൾ ചെയ്യുന്നു
     loop = asyncio.get_event_loop()
     reply_content = await loop.run_in_executor(None, fetch_gemini, text)
 
