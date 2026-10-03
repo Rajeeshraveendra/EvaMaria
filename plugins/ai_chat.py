@@ -10,16 +10,17 @@ def fetch_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
 
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
+    # Gemini 1.5 Pro എൻഡ്‌പോയിന്റ്
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
     
     payload = {
         "contents": [{
             "parts": [{
                 "text": (
-                    "You are an AI assistant for the Telegram channel and movie group 'RRK Movies'. "
-                    "Answer user queries politely, accurately, and concisely (OTT release dates, platforms, cast details). "
-                    "Respond in simple Malayalam, Manglish, or English depending on how the user asks. Keep it crisp.\n\n"
-                    f"User Question: {prompt}"
+                    "You are an AI cinema assistant for the Telegram channel and group 'RRK Movies'. "
+                    "Answer user queries politely, accurately, and concisely (OTT release dates, streaming platforms, cast details). "
+                    "Respond in simple Malayalam, Manglish, or English depending on user query. Keep answers brief with emojis.\n\n"
+                    f"User Query: {prompt}"
                 )
             }]
         }]
@@ -35,7 +36,7 @@ def fetch_gemini(prompt: str) -> str:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=20) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["candidates"][0]["content"]["parts"][0]["text"]
     except urllib.error.HTTPError as e:
@@ -44,12 +45,11 @@ def fetch_gemini(prompt: str) -> str:
     except Exception as e:
         return f"⚠️ Connection Error: {str(e)}"
 
-# group=-1 നൽകി മെസ്സേജ് പരിശോധിക്കുന്നു
 @Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
 async def ai_movie_assistant(client, message):
     text = (message.text or "").strip()
 
-    # കമാൻഡുകൾ വന്നാൽ ഉടൻ തന്നെ അടുത്ത ഫിൽട്ടറിലേക്ക് വിടുക
+    # കമാൻഡുകൾ ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
         message.continue_propagation()
         return
@@ -64,12 +64,11 @@ async def ai_movie_assistant(client, message):
         any(trigger in text.lower() for trigger in triggers)
     )
 
-    # സിനിമയുടെ പേര് മാത്രമാണെങ്കിൽ (ചോദ്യമല്ലെങ്കിൽ) സിനിമ ഫയൽ സെർച്ച് ചെയ്യാനായി pm_filter-ലേക്ക് അയക്കുന്നു
+    # ചോദ്യമല്ലെങ്കിൽ ഫയൽ സെർച്ചിലേക്ക് കൈമാറുന്നു
     if not is_question:
         message.continue_propagation()
         return
 
-    # ചോദ്യമാണെങ്കിൽ മാത്രം Gemini ഉത്തരം നൽകുന്നു
     try:
         await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
     except:
@@ -83,7 +82,6 @@ async def ai_movie_assistant(client, message):
             f"{reply}\n\n🍿 **RRK Movies Updates**",
             disable_web_page_preview=True
         )
-        # ചോദ്യത്തിന് ഉത്തരം കൊടുത്തതിനാൽ അവിടെവെച്ച് നിർത്തുന്നു
         message.stop_propagation()
     except Exception as e:
         print(f"Error sending message: {e}")
