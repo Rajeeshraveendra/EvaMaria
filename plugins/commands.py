@@ -35,13 +35,21 @@ async def start(client, message):
         await asyncio.sleep(2)
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
-            await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))       
+            if LOG_CHANNEL:
+                try:
+                    await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))
+                except Exception as e:
+                    logger.error(f"LOG_CHANNEL Error: {e}")
             await db.add_chat(message.chat.id, message.chat.title)
         return 
 
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
-        await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+        if LOG_CHANNEL:
+            try:
+                await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
+            except Exception as e:
+                logger.error(f"LOG_CHANNEL Error: {e}")
 
     if len(message.command) != 2:
         buttons = [[
@@ -128,7 +136,12 @@ async def start(client, message):
                     msgs = json.loads(file_data.read())
             except:
                 await sts.edit("FAILED")
-                return await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN FILE.")
+                if LOG_CHANNEL:
+                    try:
+                        await client.send_message(LOG_CHANNEL, "UNABLE TO OPEN FILE.")
+                    except Exception:
+                        pass
+                return
             os.remove(file)
             BATCH_FILES[file_id] = msgs
         for msg in msgs:
@@ -465,7 +478,6 @@ async def save_template(client, message):
 @Client.on_message(filters.text & filters.private & filters.incoming, group=-1)
 async def auto_send_pm_movie(client, message):
     text = (message.text or "").strip()
-    print(f"[DEBUG] Received PM Text: {text} from {message.from_user.id}")
 
     if text.startswith(("/", "!", "#")):
         message.continue_propagation()
@@ -480,9 +492,8 @@ async def auto_send_pm_movie(client, message):
     try:
         cursor = Media.collection.find(find_query).limit(10)
         files = await cursor.to_list(length=10)
-        print(f"[DEBUG] Found {len(files)} files for query: {text}")
     except Exception as e:
-        print(f"[DEBUG] DB Search Error: {e}")
+        logger.error(f"DB Search Error: {e}")
         return
 
     if not files:
@@ -492,7 +503,6 @@ async def auto_send_pm_movie(client, message):
     for doc in files:
         file_id = doc.get("file_id")
         file_name = doc.get("file_name", "Movie File")
-        print(f"[DEBUG] Processing file: {file_name} with file_id: {file_id}")
 
         if not file_id:
             continue
@@ -505,21 +515,23 @@ async def auto_send_pm_movie(client, message):
                 file_id=file_id,
                 caption=caption
             )
-            print(f"[DEBUG] Successfully sent: {file_name}")
 
             if LOG_CHANNEL:
-                user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
-                log_text = (
-                    f"📁 **#FileSent**\n\n"
-                    f"👤 **User:** {user_info} (`{message.from_user.id}`)\n"
-                    f"🎬 **Film/File:** `{file_name}`"
-                )
-                await client.send_message(
-                    chat_id=LOG_CHANNEL,
-                    text=log_text,
-                    disable_web_page_preview=True
-                )
+                try:
+                    user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
+                    log_text = (
+                        f"📁 **#FileSent**\n\n"
+                        f"👤 **User:** {user_info} (`{message.from_user.id}`)\n"
+                        f"🎬 **Film/File:** `{file_name}`"
+                    )
+                    await client.send_message(
+                        chat_id=LOG_CHANNEL,
+                        text=log_text,
+                        disable_web_page_preview=True
+                    )
+                except Exception as e:
+                    logger.error(f"LOG_CHANNEL send error: {e}")
 
             await asyncio.sleep(1.2)
         except Exception as e:
-            print(f"[DEBUG] Error sending file {file_name}: {e}")
+            logger.error(f"Error sending file {file_name}: {e}")
