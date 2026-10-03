@@ -1,14 +1,14 @@
 import re
 import urllib.parse
 import asyncio
+import random
 from pyrogram import Client, filters, enums
-from info import CHANNELS
+from info import CHANNELS, PICS
 from utils import temp
 import os
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1001452215783"))
 
-# സിനിമയുടെ മെസ്സേജ് ഐഡികളും ലിസ്റ്റുകളും താൽക്കാലികമായി സൂക്ഷിക്കാൻ
 POST_CACHE = {}
 LOCK = asyncio.Lock()
 
@@ -39,14 +39,14 @@ async def auto_post_to_group(client, message):
     line_entry = f"🎬 <a href=\"{movie_link}\">{file_name}</a>"
 
     async with LOCK:
-        # നിലവിൽ ഈ സിനിമയ്ക്കായി പോസ്റ്റ് ഗ്രൂപ്പിൽ അയച്ചിട്ടുണ്ടെങ്കിൽ അത് എഡിറ്റ് ചെയ്യുന്നു
+        # നിലവിൽ ഈ സിനിമയ്ക്കായി പോസ്റ്റ് ഗ്രൂപ്പിൽ ഉണ്ടെങ്കിൽ കാപ്ഷൻ എഡിറ്റ് ചെയ്യുന്നു
         if base_title in POST_CACHE:
             data = POST_CACHE[base_title]
             if line_entry not in data["entries"]:
                 data["entries"].append(line_entry)
                 
                 movies_list_text = "\n".join(data["entries"])
-                updated_text = (
+                updated_caption = (
                     f"<b>Today's Movies :</b>\n"
                     f"{movies_list_text}\n\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -56,19 +56,18 @@ async def auto_post_to_group(client, message):
                     f"━━━━━━━━━━━━━━━━━━━━"
                 )
                 try:
-                    await client.edit_message_text(
+                    await client.edit_message_caption(
                         chat_id=UPDATE_CHANNEL,
                         message_id=data["msg_id"],
-                        text=updated_text,
-                        parse_mode=enums.ParseMode.HTML,
-                        disable_web_page_preview=True
+                        caption=updated_caption,
+                        parse_mode=enums.ParseMode.HTML
                     )
                 except Exception as e:
-                    print(f"Edit Post Error: {e}")
+                    print(f"Edit Caption Error: {e}")
             return
 
-        # പുതിയൊരു സിനിമയാണെങ്കിൽ പുതിയ മെസ്സേജ് അയക്കുന്നു
-        initial_text = (
+        # പുതിയ പോസ്റ്റിനായുള്ള കാപ്ഷൻ
+        initial_caption = (
             f"<b>Today's Movies :</b>\n"
             f"{line_entry}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -78,17 +77,42 @@ async def auto_post_to_group(client, message):
             f"━━━━━━━━━━━━━━━━━━━━"
         )
 
+        # ഫയലിൽ തമ്പ്‌നെയിൽ ഉണ്ടെങ്കിൽ അത്, ഇല്ലെങ്കിൽ ബോട്ടിൽ നിങ്ങൾ നൽകിയിട്ടുള്ള PICS ലിങ്ക് എടുക്കുന്നു
+        default_pic = random.choice(PICS) if PICS else None
+        photo = media.thumbs[0].file_id if (media.thumbs and len(media.thumbs) > 0) else default_pic
+
         try:
-            sent_msg = await client.send_message(
-                chat_id=UPDATE_CHANNEL,
-                text=initial_text,
-                parse_mode=enums.ParseMode.HTML,
-                disable_web_page_preview=True
-            )
-            # ഭാവിയിലെ എഡിറ്റുകൾക്കായി മെസ്സേജ് ഐഡി സേവ് ചെയ്യുന്നു
+            if photo:
+                sent_msg = await client.send_photo(
+                    chat_id=UPDATE_CHANNEL,
+                    photo=photo,
+                    caption=initial_caption,
+                    parse_mode=enums.ParseMode.HTML
+                )
+            else:
+                sent_msg = await client.send_message(
+                    chat_id=UPDATE_CHANNEL,
+                    text=initial_caption,
+                    parse_mode=enums.ParseMode.HTML,
+                    disable_web_page_preview=True
+                )
+            
             POST_CACHE[base_title] = {
                 "msg_id": sent_msg.id,
                 "entries": [line_entry]
             }
         except Exception as e:
-            print(f"Send New Post Error: {e}")
+            # എന്തെങ്കിലും എറർ വന്നാൽ സാധാരണ ടെക്സ്റ്റ് ആയി അയക്കുന്നു
+            try:
+                sent_msg = await client.send_message(
+                    chat_id=UPDATE_CHANNEL,
+                    text=initial_caption,
+                    parse_mode=enums.ParseMode.HTML,
+                    disable_web_page_preview=True
+                )
+                POST_CACHE[base_title] = {
+                    "msg_id": sent_msg.id,
+                    "entries": [line_entry]
+                }
+            except Exception as ex:
+                print(f"Send Post Error: {ex}")
