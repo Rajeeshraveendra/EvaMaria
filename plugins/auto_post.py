@@ -14,7 +14,7 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def get_pure_title(filename):
-    """ഫയൽ നെയിമിൽ നിന്ന് അനാവശ്യ ടാഗുകൾ മാറ്റി പ്രധാന പേര് കണ്ടെത്തുന്നു"""
+    """ഫയൽ നെയിമിൽ നിന്ന് സിനിമയുടെ പ്രധാന പേര് മാത്രം എടുക്കുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -26,7 +26,16 @@ def get_pure_title(filename):
             break
         clean.append(w)
     title = " ".join(clean).strip()
-    return title if title else words[0] if words else "Movie"
+    return title if title else "Movie"
+
+def get_best_search_word(clean_title):
+    """ഡാറ്റാബേസിൽ 100% റിസൾട്ട് വരാൻ 'The', 'A' ഒഴിവാക്കി മെയിൻ വാക്ക് എടുക്കുന്നു"""
+    words = clean_title.split()
+    # 'The Love Hypothesis' ആണെങ്കിൽ 'Love Hypothesis' അല്ലെങ്കിൽ 'Hypothesis'
+    filtered = [w for w in words if w.lower() not in ["the", "a", "an", "movie"]]
+    if filtered:
+        return " ".join(filtered[:2])
+    return clean_title
 
 def get_caption_and_buttons(movie_title, entries):
     movies_list_text = "\n".join(entries)
@@ -37,12 +46,24 @@ def get_caption_and_buttons(movie_title, entries):
         f"          <b>Released ✅</b>\n"
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📥 <i>ഫയലുകൾ ലഭിക്കാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്യുക 👇</i>"
     )
     
-    # ഇൻലൈൻ വഴി നേരിട്ട് ഈ പേരുള്ള എല്ലാ ഫയലുകളും ലിസ്റ്റ് ചെയ്യുന്ന ബട്ടൺ
+    bot_username = temp.U_NAME
+    search_keyword = get_best_search_word(movie_title)
+    
+    # EvaMaria ബോട്ടിൽ സെർച്ച് ഫലങ്ങൾ നേരിട്ട് വരാൻ ഈ ഡീപ് ലിങ്ക് ഉപയോഗിക്കാം
+    encoded_search = urllib.parse.quote_plus(search_keyword)
+    deep_link = f"https://t.me/{bot_username}?start=search_{encoded_search}"
+    
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=movie_title)]
+        [
+            InlineKeyboardButton("📥 Download (Get in Bot)", url=deep_link)
+        ],
+        [
+            InlineKeyboardButton("⚡ Search Here", switch_inline_query_current_chat=search_keyword)
+        ]
     ])
     
     return caption, buttons
@@ -60,9 +81,11 @@ async def auto_post_to_group(client, message):
     base_title = get_pure_title(file_name)
     bot_username = temp.U_NAME
 
-    # ഇൻലൈൻ ക്വറി ട്രിഗർ ചെയ്യുന്ന ലിങ്ക്
-    inline_link = f"https://t.me/{bot_username}?start=search"
-    line_entry = f"🎬 {file_name}"
+    search_keyword = get_best_search_word(base_title)
+    encoded_search = urllib.parse.quote_plus(search_keyword)
+    deep_link = f"https://t.me/{bot_username}?start=search_{encoded_search}"
+    
+    line_entry = f"🎬 <a href=\"{deep_link}\">{file_name}</a>"
 
     async with LOCK:
         if base_title in POST_CACHE:
