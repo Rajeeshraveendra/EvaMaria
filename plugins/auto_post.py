@@ -1,11 +1,10 @@
 import re
 import urllib.parse
 import asyncio
-import random
+import os
 from pyrogram import Client, filters, enums
 from info import CHANNELS, PICS
 from utils import temp
-import os
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1001452215783"))
 
@@ -39,7 +38,7 @@ async def auto_post_to_group(client, message):
     line_entry = f"🎬 <a href=\"{movie_link}\">{file_name}</a>"
 
     async with LOCK:
-        # നിലവിൽ ഈ സിനിമയ്ക്കായി പോസ്റ്റ് ഗ്രൂപ്പിൽ ഉണ്ടെങ്കിൽ കാപ്ഷൻ എഡിറ്റ് ചെയ്യുന്നു
+        # നിലവിൽ ഈ സിനിമയ്ക്കായി പോസ്റ്റ് ഉണ്ടെങ്കിൽ കാപ്ഷൻ എഡിറ്റ് ചെയ്യുന്നു
         if base_title in POST_CACHE:
             data = POST_CACHE[base_title]
             if line_entry not in data["entries"]:
@@ -77,42 +76,48 @@ async def auto_post_to_group(client, message):
             f"━━━━━━━━━━━━━━━━━━━━"
         )
 
-        # ഫയലിൽ തമ്പ്‌നെയിൽ ഉണ്ടെങ്കിൽ അത്, ഇല്ലെങ്കിൽ ബോട്ടിൽ നിങ്ങൾ നൽകിയിട്ടുള്ള PICS ലിങ്ക് എടുക്കുന്നു
-        default_pic = random.choice(PICS) if PICS else None
-        photo = media.thumbs[0].file_id if (media.thumbs and len(media.thumbs) > 0) else default_pic
+        sent_msg = None
+        thumb_path = None
 
-        try:
-            if photo:
+        # 1. ഫയലിൽ തമ്പ്‌നെയിൽ ഉണ്ടെങ്കിൽ അത് ലോക്കലായി ഡൗൺലോഡ് ചെയ്ത് ഫോട്ടോയായി അയക്കുന്നു
+        if media.thumbs and len(media.thumbs) > 0:
+            try:
+                thumb_path = await client.download_media(media.thumbs[0].file_id)
                 sent_msg = await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=photo,
+                    photo=thumb_path,
                     caption=initial_caption,
                     parse_mode=enums.ParseMode.HTML
                 )
-            else:
-                sent_msg = await client.send_message(
-                    chat_id=UPDATE_CHANNEL,
-                    text=initial_caption,
-                    parse_mode=enums.ParseMode.HTML,
-                    disable_web_page_preview=True
-                )
-            
-            POST_CACHE[base_title] = {
-                "msg_id": sent_msg.id,
-                "entries": [line_entry]
-            }
-        except Exception as e:
-            # എന്തെങ്കിലും എറർ വന്നാൽ സാധാരണ ടെക്സ്റ്റ് ആയി അയക്കുന്നു
+            except Exception as err:
+                print(f"Thumb upload error: {err}")
+            finally:
+                if thumb_path and os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+
+        # 2. തമ്പ്‌നെയിൽ ഇല്ലെങ്കിലോ പരാജയപ്പെട്ടാലോ PICS ലിങ്ക് ഉപയോഗിക്കുന്നു
+        if not sent_msg and PICS:
             try:
-                sent_msg = await client.send_message(
+                import random
+                sent_msg = await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    text=initial_caption,
-                    parse_mode=enums.ParseMode.HTML,
-                    disable_web_page_preview=True
+                    photo=random.choice(PICS),
+                    caption=initial_caption,
+                    parse_mode=enums.ParseMode.HTML
                 )
-                POST_CACHE[base_title] = {
-                    "msg_id": sent_msg.id,
-                    "entries": [line_entry]
-                }
-            except Exception as ex:
-                print(f"Send Post Error: {ex}")
+            except Exception as err:
+                print(f"PICS upload error: {err}")
+
+        # 3. മുകളിൽ രണ്ടും നടന്നില്ലെങ്കിൽ മാത്രം ടെക്സ്റ്റ് അയക്കുന്നു
+        if not sent_msg:
+            sent_msg = await client.send_message(
+                chat_id=UPDATE_CHANNEL,
+                text=initial_caption,
+                parse_mode=enums.ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+
+        POST_CACHE[base_title] = {
+            "msg_id": sent_msg.id,
+            "entries": [line_entry]
+        }
