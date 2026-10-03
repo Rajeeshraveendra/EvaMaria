@@ -1,21 +1,35 @@
 import os
-import google.generativeai as genai
+import aiohttp
 from pyrogram import Client, filters, enums
 
-# Gemini API ക്രമീകരണം
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Railway Environment Variable-ൽ നിന്ന് കീ എടുക്കുന്നു
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    system_instruction=(
-        "You are an AI assistant for the Telegram channel 'RRK Movies'. "
-        "Answer movie questions, OTT releases, cast details concisely and clearly. "
-        "Keep answers short, friendly, and formatted without unsupported markdown. "
-        "Answer in Malayalam, Manglish, or English depending on user request."
-    )
-)
+async def ask_gemini(prompt: str) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {
+        "contents": [{
+            "parts": [{
+                "text": f"You are an AI assistant for the Telegram channel and movie group 'RRK Movies'. "
+                        f"Answer the user query politely, accurately, and concisely (OTT release dates, platform info, movie updates). "
+                        f"Respond in Malayalam, Manglish, or English depending on how the user asks. Keep it short and crisp with emojis.\n\nUser Question: {prompt}"
+            }]
+        }]
+    }
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                data = await resp.json()
+                if resp.status == 200:
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    err_msg = data.get("error", {}).get("message", "Unknown error")
+                    print(f"Gemini API Error: {err_msg}")
+                    return None
+        except Exception as e:
+            print(f"Connection Error: {e}")
+            return None
 
 @Client.on_message(filters.group & filters.text)
 async def ai_movie_assistant(client, message):
@@ -23,7 +37,6 @@ async def ai_movie_assistant(client, message):
         return
 
     text = message.text.strip()
-
     if text.startswith(("/", "!", "#")):
         return
 
@@ -45,17 +58,12 @@ async def ai_movie_assistant(client, message):
     except:
         pass
 
-    try:
-        # Generate AI response
-        response = model.generate_content(text)
-        reply_content = response.text or "വിവരങ്ങൾ ലഭ്യമായില്ല. ദയവായി അല്പം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക."
+    reply_content = await ask_gemini(text)
 
-        # ParseMode ഒഴിവാക്കി പ്ലെയിൻ ടെക്സ്റ്റായി അയക്കുന്നു (മാർക്ക്ഡൗൺ എറർ വരാതിരിക്കാൻ)
+    if reply_content:
         await client.send_message(
             chat_id=message.chat.id,
             text=f"{reply_content}\n\n🍿 RRK Movies Updates",
             reply_to_message_id=message.id,
             disable_web_page_preview=True
         )
-    except Exception as e:
-        print(f"Gemini AI Error: {e}")
