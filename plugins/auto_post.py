@@ -2,6 +2,7 @@ import re
 import urllib.parse
 import asyncio
 import os
+import random
 from pyrogram import Client, filters, enums
 from info import CHANNELS, PICS
 from utils import temp
@@ -12,11 +13,21 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def clean_movie_title(filename):
-    """സിനിമയുടെ പ്രധാന പേര് മാത്രം കണ്ടെത്തുന്നു"""
+    """ഫയൽ നെയിമിൽ നിന്ന് സിനിമയുടെ പ്രധാന പേര് മാത്രം കൃത്യമായി വേർതിരിച്ചെടുക്കുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
+    
+    # ക്വാളിറ്റികളും ഭാഷകളും മാറ്റി പേര് മാത്രം കണ്ടെത്തുന്നു
+    tags = ["hindi", "tamil", "telugu", "malayalam", "kannada", "english", "hdrip", "web-dl", "hevc", "720p", "1080p", "480p", "mkv", "mp4"]
     words = name.split()
-    return " ".join(words[:4]).strip().title() if words else filename
+    clean_words = []
+    for w in words:
+        if w.lower() in tags:
+            break
+        clean_words.append(w)
+    
+    final_title = " ".join(clean_words).strip().title()
+    return final_title if final_title else name[:15]
 
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
@@ -30,7 +41,6 @@ async def auto_post_to_group(client, message):
     file_name = media.file_name or "New Movie"
     base_title = clean_movie_title(file_name)
     
-    # സിനിമയുടെ ഡീപ് ലിങ്ക്
     search_query = urllib.parse.quote(base_title)
     bot_username = temp.U_NAME
     movie_link = f"https://t.me/{bot_username}?start={search_query}"
@@ -38,7 +48,7 @@ async def auto_post_to_group(client, message):
     line_entry = f"🎬 <a href=\"{movie_link}\">{file_name}</a>"
 
     async with LOCK:
-        # നിലവിൽ ഈ സിനിമയ്ക്കായി പോസ്റ്റ് ഉണ്ടെങ്കിൽ കാപ്ഷൻ എഡിറ്റ് ചെയ്യുന്നു
+        # നിലവിൽ ഇതേ സിനിമയ്ക്ക് പോസ്റ്റ് ഉണ്ടെങ്കിൽ ആ പോസ്റ്റിലേക്ക് എഡിറ്റ് ചെയ്ത് ചേർക്കുന്നു
         if base_title in POST_CACHE:
             data = POST_CACHE[base_title]
             if line_entry not in data["entries"]:
@@ -77,28 +87,9 @@ async def auto_post_to_group(client, message):
         )
 
         sent_msg = None
-        thumb_path = None
-
-        # 1. ഫയലിൽ തമ്പ്‌നെയിൽ ഉണ്ടെങ്കിൽ അത് ലോക്കലായി ഡൗൺലോഡ് ചെയ്ത് ഫോട്ടോയായി അയക്കുന്നു
-        if media.thumbs and len(media.thumbs) > 0:
+        # മറ്റുള്ളവരുടെ തമ്പ്‌നെയിൽ ഒഴിവാക്കി നിങ്ങളുടെ ബോട്ടിന്റെ സ്വന്തം ഇമേജ് (PICS) നൽകുന്നു
+        if PICS:
             try:
-                thumb_path = await client.download_media(media.thumbs[0].file_id)
-                sent_msg = await client.send_photo(
-                    chat_id=UPDATE_CHANNEL,
-                    photo=thumb_path,
-                    caption=initial_caption,
-                    parse_mode=enums.ParseMode.HTML
-                )
-            except Exception as err:
-                print(f"Thumb upload error: {err}")
-            finally:
-                if thumb_path and os.path.exists(thumb_path):
-                    os.remove(thumb_path)
-
-        # 2. തമ്പ്‌നെയിൽ ഇല്ലെങ്കിലോ പരാജയപ്പെട്ടാലോ PICS ലിങ്ക് ഉപയോഗിക്കുന്നു
-        if not sent_msg and PICS:
-            try:
-                import random
                 sent_msg = await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
                     photo=random.choice(PICS),
@@ -106,9 +97,9 @@ async def auto_post_to_group(client, message):
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as err:
-                print(f"PICS upload error: {err}")
+                print(f"Custom Poster error: {err}")
 
-        # 3. മുകളിൽ രണ്ടും നടന്നില്ലെങ്കിൽ മാത്രം ടെക്സ്റ്റ് അയക്കുന്നു
+        # ഇമേജ് വന്നില്ലെങ്കിൽ സാധാരണ ടെക്സ്റ്റ് ആയി അയക്കുന്നു
         if not sent_msg:
             sent_msg = await client.send_message(
                 chat_id=UPDATE_CHANNEL,
