@@ -7,34 +7,23 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 1,
-    "max_output_tokens": 500,
-}
-
-system_instruction = (
-    "You are an intelligent movie assistant for the Telegram channel and group 'RRK Movies'. "
-    "Provide clear, accurate, and concise answers about movie OTT release dates, platforms (Netflix, Hotstar, Prime, etc.), "
-    "cast, director, and updates. Answer in Malayalam, Manglish, or English depending on how the user asks. "
-    "Keep answers friendly and formatted with clean bullet points and emojis. Do not invent fake release dates."
-)
-
 model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
-    generation_config=generation_config,
-    system_instruction=system_instruction
+    system_instruction=(
+        "You are an AI assistant for the Telegram channel 'RRK Movies'. "
+        "Answer movie questions, OTT releases, cast details concisely and clearly. "
+        "Keep answers short, friendly, and formatted without unsupported markdown. "
+        "Answer in Malayalam, Manglish, or English depending on user request."
+    )
 )
 
 @Client.on_message(filters.group & filters.text)
 async def ai_movie_assistant(client, message):
-    # ബോട്ട് തന്നെ അയക്കുന്ന മെസ്സേജുകൾ ഒഴിവാക്കുന്നു
     if message.from_user and message.from_user.is_bot:
         return
 
     text = message.text.strip()
 
-    # കമാൻഡുകൾ ഒഴിവാക്കുക
     if text.startswith(("/", "!", "#")):
         return
 
@@ -51,19 +40,21 @@ async def ai_movie_assistant(client, message):
     if not is_question or not GEMINI_API_KEY:
         return
 
-    # ടൈപ്പിംഗ് സ്റ്റാറ്റസ്
     try:
         await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
     except:
         pass
 
     try:
+        # Generate AI response
         response = model.generate_content(text)
-        reply_content = response.text
+        reply_content = response.text or "വിവരങ്ങൾ ലഭ്യമായില്ല. ദയവായി അല്പം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക."
 
-        await message.reply_text(
-            f"{reply_content}\n\n🍿 **RRK Movies Updates**",
-            quote=True,
+        # ParseMode ഒഴിവാക്കി പ്ലെയിൻ ടെക്സ്റ്റായി അയക്കുന്നു (മാർക്ക്ഡൗൺ എറർ വരാതിരിക്കാൻ)
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=f"{reply_content}\n\n🍿 RRK Movies Updates",
+            reply_to_message_id=message.id,
             disable_web_page_preview=True
         )
     except Exception as e:
