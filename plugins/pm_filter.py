@@ -4,7 +4,7 @@ from pyrogram import Client, filters, enums
 from info import ADMINS, AUTH_USERS, CUSTOM_FILE_CAPTION, LOG_CHANNEL
 from database.ia_filterdb import get_search_results
 
-@Client.on_message(filters.text & filters.private & filters.incoming)
+@Client.on_message(filters.text & filters.private & filters.incoming, group=-1)
 async def auto_pm_search(client, message):
     text = (message.text or "").strip()
 
@@ -18,7 +18,6 @@ async def auto_pm_search(client, message):
     query = re.sub(r"[:_#\.\-]", " ", text).strip()
     
     try:
-        # ചില വേർഷനുകളിൽ chat_id ആവശ്യമാണ്, ചിലതിൽ ആവശ്യമില്ല
         files, _, _ = await get_search_results(message.chat.id, query, max_results=10)
     except TypeError:
         files, _, _ = await get_search_results(query, max_results=10)
