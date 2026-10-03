@@ -8,7 +8,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 def fetch_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
-        return "⚠️ Error: GEMINI_API_KEY missing in Railway Variables!"
+        return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
@@ -16,10 +16,10 @@ def fetch_gemini(prompt: str) -> str:
         "contents": [{
             "parts": [{
                 "text": (
-                    "You are an AI cinema assistant for the Telegram channel and group 'RRK Movies'. "
-                    "Answer user queries politely, accurately, and concisely (OTT release dates, streaming platform, cast details). "
-                    "Respond in Malayalam, Manglish, or English depending on user query. Keep answers brief with emojis.\n\n"
-                    f"User Query: {prompt}"
+                    "You are an AI assistant for the Telegram channel and movie group 'RRK Movies'. "
+                    "Answer user queries politely, accurately, and concisely (OTT release dates, platforms, cast details). "
+                    "Respond in simple Malayalam, Manglish, or English depending on how the user asks. Keep it crisp.\n\n"
+                    f"User Question: {prompt}"
                 )
             }]
         }]
@@ -32,23 +32,22 @@ def fetch_gemini(prompt: str) -> str:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with urllib.request.urlopen(req, timeout=12) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["candidates"][0]["content"]["parts"][0]["text"]
     except urllib.error.HTTPError as e:
-        err_text = e.read().decode("utf-8", errors="ignore")
-        return f"⚠️ API Error ({e.code}): {err_text[:120]}"
+        err_msg = e.read().decode("utf-8", errors="ignore")
+        return f"⚠️ API Error ({e.code}): {err_msg[:100]}"
     except Exception as e:
-        return f"⚠️ Error: {str(e)}"
+        return f"⚠️ Connection Error: {str(e)}"
 
-# ഗ്രൂപ്പിലും പേഴ്സണൽ ചാറ്റിലും ഒരുപോലെ പ്രവർത്തിക്കാൻ (filters.group | filters.private) നൽകുന്നു
-@Client.on_message((filters.group | filters.private) & filters.text & filters.incoming, group=-1)
+# group പരാമീറ്റർ ഒഴിവാക്കി സാധാരണ ഫിൽട്ടർ നൽകുന്നു, ഇതോടെ മറ്റ് കമാൻഡുകൾ ബ്ലോക്ക് ആകില്ല
+@Client.on_message(filters.group & filters.text)
 async def ai_movie_assistant(client, message):
     text = (message.text or "").strip()
 
-    # കമാൻഡുകൾ ഒഴിവാക്കുക (/start, /stats മുതലായവ)
+    # കമാൻഡുകൾ (/start, /stats മുതലായവ) പൂർണ്ണമായും ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
-        message.continue_propagation()
         return
 
     triggers = [
@@ -61,9 +60,8 @@ async def ai_movie_assistant(client, message):
         any(trigger in text.lower() for trigger in triggers)
     )
 
-    # ചോദ്യമല്ലെങ്കിൽ സാധാരണ ഫയൽ സെർച്ചിലേക്ക് വിടുക
+    # ചോദ്യമാണെങ്കിൽ മാത്രം Gemini മറുപടി നൽകുന്നു
     if not is_question:
-        message.continue_propagation()
         return
 
     try:
@@ -72,14 +70,12 @@ async def ai_movie_assistant(client, message):
         pass
 
     loop = asyncio.get_event_loop()
-    reply_content = await loop.run_in_executor(None, fetch_gemini, text)
+    reply = await loop.run_in_executor(None, fetch_gemini, text)
 
     try:
         await message.reply_text(
-            f"{reply_content}\n\n🍿 **RRK Movies Updates**",
+            f"{reply}\n\n🍿 **RRK Movies Updates**",
             disable_web_page_preview=True
         )
-        message.stop_propagation()
     except Exception as e:
-        print(f"Send Message Error: {e}")
-        message.continue_propagation()
+        print(f"Error sending message: {e}")
