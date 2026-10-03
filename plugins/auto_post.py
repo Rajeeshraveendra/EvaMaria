@@ -156,18 +156,26 @@ async def custom_index_command(client, message):
     except ValueError:
         return await message.reply_text("നമ്പറുകൾ കൃത്യമായി നൽകുക!")
 
-    status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യുന്നു...")
+    status_msg = await message.reply_text("⏳ ചാനൽ സ്ഥിരീകരിക്കുന്നു...")
+
+    # ചാനൽ പിയർ ലോഡ് ചെയ്യാൻ get_chat ഉപയോഗിക്കുന്നു
+    try:
+        chat_obj = await client.get_chat(DB_CHANNEL_ID)
+    except Exception as e:
+        return await status_msg.edit_text(f"⚠️ <b>ചാനൽ ആക്സസ് എറർ:</b> <code>{e}</code>")
+
+    await status_msg.edit_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യുന്നു...")
     saved_count = 0
     last_error = None
 
     for msg_id in range(start_id, end_id + 1):
         try:
-            ch_msg = await client.get_messages(DB_CHANNEL_ID, msg_id)
+            ch_msg = await client.get_messages(chat_obj.id, msg_id)
             if ch_msg and (ch_msg.document or ch_msg.video):
                 media = ch_msg.document or ch_msg.video
                 saved = False
                 try:
-                    # media object നേരിട്ട് save_file-ലേക്ക് നൽകുന്നു
+                    # media object നേരിട്ട് നൽകുന്നു
                     saved = await save_file(media)
                 except Exception as e1:
                     try:
