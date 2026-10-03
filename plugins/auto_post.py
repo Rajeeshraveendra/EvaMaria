@@ -5,8 +5,9 @@ import os
 import random
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from info import CHANNELS, PICS
+from info import CHANNELS, PICS, ADMINS
 from utils import temp
+from database.ia_filterdb import save_file
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1001452215783"))
 
@@ -14,7 +15,6 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def get_pure_title(filename):
-    """[MM], ബ്രാക്കറ്റുകൾ, ക്വാളിറ്റി ടാഗുകൾ എന്നിവ മാറ്റി കൃത്യമായ പേര് കണ്ടെത്തുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -38,42 +38,33 @@ def get_caption_and_buttons(movie_title, entries):
         f"          <b>Released ✅</b>\n"
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📥 <i>സിനിമ ലഭിക്കാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്യുക 👇</i>"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
     
-    bot_username = temp.U_NAME
-    
-    # 1. ബോട്ടിൽ നേരിട്ട് സെർച്ച് ചെയ്യാൻ ഉപയോക്താവിനെ എത്തിക്കുന്ന ലിങ്ക്
-    # ബോട്ടിലേക്ക് ചെന്നയുടൻ ഈ പേര് പേസ്റ്റ് ചെയ്ത് അയക്കാനുള്ള ഷെയർ ലിങ്ക്
-    encoded_title = urllib.parse.quote(movie_title)
-    share_to_bot = f"https://t.me/share/url?url={encoded_title}&text="
-    bot_chat_link = f"https://t.me/{bot_username}"
-
     buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("⚡ Search Movie Here ⚡", switch_inline_query_current_chat=movie_title)
-        ],
-        [
-            InlineKeyboardButton("🤖 Go to Bot", url=bot_chat_link)
-        ]
+        [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=movie_title)]
     ])
     
     return caption, buttons
 
+# 1. പുതിയ ഫയലുകൾ ചാനലിൽ വരുമ്പോൾ ഓട്ടോമാറ്റിക് പോസ്റ്റ് & DB സേവ്
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
-    if not UPDATE_CHANNEL:
-        return
-
     media = message.document or message.video
     if not media:
         return
 
+    # ഫയൽ ഒരേസമയം MongoDB-യിലേക്കും സേവ് ചെയ്യുന്നു
+    try:
+        await save_file(media)
+    except Exception as err:
+        print(f"Save File Error: {err}")
+
+    if not UPDATE_CHANNEL:
+        return
+
     file_name = media.file_name or "New Movie"
     base_title = get_pure_title(file_name)
-    bot_username = temp.U_NAME
-
     line_entry = f"🎬 {file_name}"
 
     async with LOCK:
@@ -124,3 +115,30 @@ async def auto_post_to_group(client, message):
             "msg_id": sent_msg.id,
             "entries": entries
         }
+
+
+# 2. പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനുള്ള പുതിയ കമാൻഡ്: /scan
+@Client.on_message(filters.command("scan") & filters.private)
+async def scan_channel_files(client, message):
+    user_id = message.from_user.id
+    admin_list = [int(admin) if str(admin).isdigit() else admin for admin in ADMINS] if isinstance(ADMINS, list) else [int(ADMINS)]
+    
+    if user_id not in admin_list:
+        return await message.reply_text("⚠️ നിങ്ങൾക്ക് ഇതിനുള്ള അഡ്മിൻ അധികാരമില്ല!")
+
+    status_msg = await message.reply_text("⏳ ചാനലിലെ പഴയ ഫയലുകൾ സ്കാൻ ചെയ്യുന്നു... ദയവായി കാത്തിരിക്കുക.")
+    total_saved = 0
+
+    target_channels = CHANNELS if isinstance(CHANNELS, list) else [CHANNELS]
+    for ch_id in target_channels:
+        try:
+            async for ch_msg in client.get_chat_history(ch_id):
+                media = ch_msg.document or ch_msg.video
+                if media:
+                    saved = await save_file(media)
+                    if saved:
+                        total_saved += 1
+        except Exception as e:
+            print(f"Scan error in {ch_id}: {e}")
+
+    await status_msg.edit_text(f"✅ ഇൻഡെക്സിംഗ് വിജയകരമായി പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത പുതിയ ഫയലുകൾ: <b>{total_saved}</b>")
