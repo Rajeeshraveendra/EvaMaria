@@ -137,15 +137,9 @@ async def auto_post_to_group(client, message):
             "entries": entries
         }
 
-# 3. മെസ്സേജ് ഐഡി വെച്ച് പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനുള്ള അഡ്മിൻ കമാൻഡ്
-# ഉപയോഗിക്കേണ്ട രീതി: /index 14 306
-@Client.on_message(filters.command("index") & filters.private)
+# 3. ചാനലിലോ ബോട്ടിലോ എവിടെ വേണമെങ്കിലും പ്രവർത്തിക്കുന്ന ഇൻഡെക്സ് കമാൻഡ്
+@Client.on_message(filters.command("index"))
 async def custom_index_command(client, message):
-    user_id = message.from_user.id
-    admin_list = [int(admin) if str(admin).isdigit() else admin for admin in ADMINS] if isinstance(ADMINS, list) else [int(ADMINS)]
-    if user_id not in admin_list:
-        return
-
     args = message.text.split()
     if len(args) < 3:
         return await message.reply_text("ഉപയോഗിക്കേണ്ട രീതി:\n<code>/index 14 306</code>")
@@ -156,32 +150,26 @@ async def custom_index_command(client, message):
     except ValueError:
         return await message.reply_text("നമ്പറുകൾ കൃത്യമായി നൽകുക!")
 
-    status_msg = await message.reply_text("⏳ ചാനൽ സ്ഥിരീകരിക്കുന്നു...")
+    # മെസ്സേജ് വന്ന ചാറ്റ് തന്നെയാണ് ടാർഗെറ്റ് ആയി എടുക്കുന്നത്
+    target_chat = message.chat.id if message.chat.id != message.from_user.id else DB_CHANNEL_ID
 
-    # ചാനൽ പിയർ ലോഡ് ചെയ്യാൻ get_chat ഉപയോഗിക്കുന്നു
-    try:
-        chat_obj = await client.get_chat(DB_CHANNEL_ID)
-    except Exception as e:
-        return await status_msg.edit_text(f"⚠️ <b>ചാനൽ ആക്സസ് എറർ:</b> <code>{e}</code>")
-
-    await status_msg.edit_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യുന്നു...")
+    status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യുന്നു...")
     saved_count = 0
     last_error = None
 
     for msg_id in range(start_id, end_id + 1):
         try:
-            ch_msg = await client.get_messages(chat_obj.id, msg_id)
+            ch_msg = await client.get_messages(target_chat, msg_id)
             if ch_msg and (ch_msg.document or ch_msg.video):
                 media = ch_msg.document or ch_msg.video
                 saved = False
                 try:
-                    # media object നേരിട്ട് നൽകുന്നു
                     saved = await save_file(media)
                 except Exception as e1:
                     try:
                         saved = await save_file(client, ch_msg)
                     except Exception as e2:
-                        last_error = f"Save error: {e1} | {e2}"
+                        last_error = f"Save error: {e1}"
 
                 if saved:
                     saved_count += 1
