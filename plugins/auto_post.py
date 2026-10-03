@@ -47,7 +47,7 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സ്വയം MongoDB-ൽ സേവ് ചെയ്യാൻ
+# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ MongoDB-ൽ സേവ് ചെയ്യാൻ
 @Client.on_message(filters.private & (filters.document | filters.video))
 async def save_direct_files(client, message):
     saved = False
@@ -140,7 +140,7 @@ async def auto_post_to_group(client, message):
             "entries": entries
         }
 
-# 3. മെസ്സേജ് ഐഡി വെച്ച് പഴയ മുഴുവൻ ഫയലുകളും സേവ് ചെയ്യാനുള്ള അഡ്മിൻ കമാൻഡ്
+# 3. മെസ്സേജ് ഐഡി വെച്ച് പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനും എറർ കണ്ടെത്താനുമുള്ള അഡ്മിൻ കമാൻഡ്
 # ഉപയോഗിക്കേണ്ട രീതി: /index 14 306
 @Client.on_message(filters.command("index") & filters.private)
 async def custom_index_command(client, message):
@@ -161,6 +161,7 @@ async def custom_index_command(client, message):
 
     status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള മെസ്സേജുകൾ സ്കാൻ ചെയ്യുന്നു...")
     saved_count = 0
+    last_error = None
 
     for msg_id in range(start_id, end_id + 1):
         try:
@@ -169,15 +170,22 @@ async def custom_index_command(client, message):
                 saved = False
                 try:
                     saved = await save_file(client, ch_msg)
-                except TypeError:
+                except Exception as e1:
                     try:
                         saved = await save_file(ch_msg)
-                    except TypeError:
-                        media = ch_msg.document or ch_msg.video
-                        saved = await save_file(media)
+                    except Exception as e2:
+                        try:
+                            media = ch_msg.document or ch_msg.video
+                            saved = await save_file(media)
+                        except Exception as e3:
+                            last_error = f"Save error: {e3}"
                 if saved:
                     saved_count += 1
         except Exception as e:
-            print(f"Error indexing {msg_id}: {e}")
+            last_error = f"Get message error: {e}"
 
-    await status_msg.edit_text(f"✅ പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത ഫയലുകൾ: <b>{saved_count}</b>")
+    reply_text = f"✅ പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത ഫയലുകൾ: <b>{saved_count}</b>"
+    if last_error and saved_count == 0:
+        reply_text += f"\n\n⚠️ <b>Error:</b> <code>{last_error}</code>"
+
+    await status_msg.edit_text(reply_text)
