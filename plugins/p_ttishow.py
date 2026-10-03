@@ -1,11 +1,9 @@
-import asyncio
-import re
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong, PeerIdInvalid
-from info import ADMINS, LOG_CHANNEL, SUPPORT_CHAT, MELCOW_NEW_USERS, CUSTOM_FILE_CAPTION
+from info import ADMINS, LOG_CHANNEL, SUPPORT_CHAT, MELCOW_NEW_USERS
 from database.users_chats_db import db
-from database.ia_filterdb import Media, get_search_results
+from database.ia_filterdb import Media
 from utils import get_size, temp, get_settings
 from Script import script
 from pyrogram.errors import ChatAdminRequired
@@ -23,13 +21,14 @@ async def save_group(bot, message):
             await db.add_chat(message.chat.id, message.chat.title)
         if message.chat.id in temp.BANNED_CHATS:
             buttons = [[
-                InlineKeyboardButton('🌐 Support', url='https://t.me/MOVIES_ZILAA')
+                InlineKeyboardButton('🌐 Support', url=f'https://t.me/MOVIES_ZILAA')
             ]]
             reply_markup = InlineKeyboardMarkup(buttons)
             k = await message.reply(
                 text='<b>CHAT NOT ALLOWED 🐞\n\nMy admins has restricted me from working here ! If you want to know more about it contact support..</b>',
                 reply_markup=reply_markup,
             )
+
             try:
                 await k.pin()
             except:
@@ -70,7 +69,7 @@ async def leave_a_chat(bot, message):
         chat = chat
     try:
         buttons = [[
-            InlineKeyboardButton('🌐 Support', url='https://t.me/MOVIES_ZILAA')
+            InlineKeyboardButton('🌐 Support', url=f'https://t.me/MOVIES_ZILAA')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await bot.send_message(
@@ -78,6 +77,7 @@ async def leave_a_chat(bot, message):
             text='<b>Hello Friends, \nMy admin has told me to leave from group so i go! If you wanna add me again contact my support group.</b>',
             reply_markup=reply_markup,
         )
+
         await bot.leave_chat(chat)
         await message.reply(f"left the chat `{chat}`")
     except Exception as e:
@@ -108,7 +108,7 @@ async def disable_chat(bot, message):
     await message.reply('Chat Successfully Disabled')
     try:
         buttons = [[
-            InlineKeyboardButton('🌐 Support', url='https://t.me/MOVIES_ZILAA')
+            InlineKeyboardButton('🌐 Support', url=f'https://t.me/MOVIES_ZILAA')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await bot.send_message(
@@ -244,62 +244,3 @@ async def list_chats(bot, message):
         with open('chats.txt', 'w+') as outfile:
             outfile.write(out)
         await message.reply_document('chats.txt', caption="List Of Chats")
-
-# --- DIRECT PM FILE SEARCH & SEND ---
-@Client.on_message(filters.private & filters.text & filters.incoming, group=-1)
-async def pm_auto_file_sender(bot, message):
-    text = (message.text or "").strip()
-
-    if text.startswith(("/", "!", "#")):
-        message.continue_propagation()
-        return
-
-    if len(text) < 2:
-        return
-
-    query = re.sub(r"[:_#\.\-]", " ", text).strip()
-
-    try:
-        files, _, _ = await get_search_results(message.chat.id, query, max_results=10)
-    except TypeError:
-        files, _, _ = await get_search_results(query, max_results=10)
-    except Exception as e:
-        print(f"Search Error: {e}")
-        return
-
-    if not files:
-        await message.reply_text("❌ സിനിമ ലഭ്യമല്ല! സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.")
-        return
-
-    for file in files:
-        file_id = getattr(file, "file_id", None) or (file.get("file_id") if isinstance(file, dict) else None)
-        file_name = getattr(file, "file_name", None) or (file.get("file_name") if isinstance(file, dict) else "Movie File")
-
-        if not file_id:
-            continue
-
-        caption = CUSTOM_FILE_CAPTION.format(file_name=file_name) if CUSTOM_FILE_CAPTION else f"📁 **{file_name}**"
-
-        try:
-            await bot.send_cached_media(
-                chat_id=message.chat.id,
-                file_id=file_id,
-                caption=caption
-            )
-
-            if LOG_CHANNEL:
-                user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
-                log_text = (
-                    f"📁 **#FileSent**\n\n"
-                    f"👤 **User:** {user_info} (`{message.from_user.id}`)\n"
-                    f"🎬 **Film/File:** `{file_name}`"
-                )
-                await bot.send_message(
-                    chat_id=LOG_CHANNEL,
-                    text=log_text,
-                    disable_web_page_preview=True
-                )
-
-            await asyncio.sleep(1.2)
-        except Exception as e:
-            print(f"File Send Error: {e}")
