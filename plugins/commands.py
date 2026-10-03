@@ -465,23 +465,23 @@ async def save_template(client, message):
 @Client.on_message(filters.text & filters.private & filters.incoming)
 async def auto_send_pm_movie(client, message):
     text = (message.text or "").strip()
+    print(f"[DEBUG] Received PM Text: {text} from {message.from_user.id}")
 
-    # കമാൻഡുകൾ ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
         return
 
     if len(text) < 2:
         return
 
-    # ഫയൽ സെർച്ച് ചെയ്യാനുള്ള regex പാറ്റേൺ
     raw_pattern = ".*".join([re.escape(w) for w in text.split()])
     find_query = {"file_name": {"$regex": raw_pattern, "$options": "i"}}
 
     try:
         cursor = Media.collection.find(find_query).limit(10)
         files = await cursor.to_list(length=10)
+        print(f"[DEBUG] Found {len(files)} files for query: {text}")
     except Exception as e:
-        logger.error(f"Search Query DB Error: {e}")
+        print(f"[DEBUG] DB Search Error: {e}")
         return
 
     if not files:
@@ -489,8 +489,9 @@ async def auto_send_pm_movie(client, message):
         return
 
     for doc in files:
-        file_id = doc.get("file_id") or doc.get("_id")
+        file_id = doc.get("file_id")
         file_name = doc.get("file_name", "Movie File")
+        print(f"[DEBUG] Processing file: {file_name} with file_id: {file_id}")
 
         if not file_id:
             continue
@@ -503,8 +504,8 @@ async def auto_send_pm_movie(client, message):
                 file_id=file_id,
                 caption=caption
             )
+            print(f"[DEBUG] Successfully sent: {file_name}")
 
-            # ലോഗ് ചാനലിലേക്ക് ഫയൽ ഡീറ്റെയിൽസ് അയക്കുന്നു
             if LOG_CHANNEL:
                 user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
                 log_text = (
@@ -520,4 +521,4 @@ async def auto_send_pm_movie(client, message):
 
             await asyncio.sleep(1.2)
         except Exception as e:
-            logger.error(f"Error sending cached media in PM: {e}")
+            print(f"[DEBUG] Error sending file {file_name}: {e}")
