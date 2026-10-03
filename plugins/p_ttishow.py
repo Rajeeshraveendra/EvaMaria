@@ -273,3 +273,69 @@ async def list_chats(bot, message):
         with open('chats.txt', 'w+') as outfile:
             outfile.write(out)
         await message.reply_document('chats.txt', caption="List Of Chats")
+import re
+import asyncio
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from database.ia_filterdb import get_search_results
+from info import CUSTOM_FILE_CAPTION
+
+@Client.on_message(filters.private & filters.text & filters.incoming)
+async def pm_auto_file_sender(bot, message):
+    text = (message.text or "").strip()
+
+    # കമാൻഡുകൾ ഒഴിവാക്കുന്നു
+    if text.startswith(("/", "!", "#")):
+        return
+
+    # ഗ്രൂപ്പ് കണക്റ്റിവിറ്റിയോ ചെറിയ അക്ഷരങ്ങളോ ഒഴിവാക്കുന്നു
+    if len(text) < 2:
+        return
+
+    query = re.sub(r"[:_#\.\-]", " ", text).strip()
+
+    try:
+        files, _, _ = await get_search_results(message.chat.id, query, max_results=10)
+    except TypeError:
+        files, _, _ = await get_search_results(query, max_results=10)
+    except Exception as e:
+        print(f"Search Error: {e}")
+        return
+
+    if not files:
+        await message.reply_text("❌ സിനിമ ലഭ്യമല്ല! സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.")
+        return
+
+    # ഓരോ ഫയലുകളായി അയക്കുന്നു
+    for file in files:
+        file_id = getattr(file, "file_id", None) or (file.get("file_id") if isinstance(file, dict) else None)
+        file_name = getattr(file, "file_name", None) or (file.get("file_name") if isinstance(file, dict) else "Movie File")
+
+        if not file_id:
+            continue
+
+        caption = CUSTOM_FILE_CAPTION.format(file_name=file_name) if CUSTOM_FILE_CAPTION else f"📁 **{file_name}**"
+
+        try:
+            await bot.send_cached_media(
+                chat_id=message.chat.id,
+                file_id=file_id,
+                caption=caption
+            )
+
+            # ലോഗ് ചാനലിലേക്ക് വിവരങ്ങൾ അയക്കുന്നു
+            if LOG_CHANNEL:
+                user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
+                log_text = (
+                    f"📁 **#FileSent**\n\n"
+                    f"👤 **User:** {user_info} (`{message.from_user.id}`)\n"
+                    f"🎬 **Film/File:** `{file_name}`"
+                )
+                await bot.send_message(
+                    chat_id=LOG_CHANNEL,
+                    text=log_text,
+                    disable_web_page_preview=True
+                )
+
+            await asyncio.sleep(1.2)
+        except Exception as e:
+            print(f"File Send Error: {e}")
