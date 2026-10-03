@@ -1,7 +1,6 @@
 import asyncio
 import re
 from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from info import ADMINS, AUTH_USERS, CUSTOM_FILE_CAPTION, LOG_CHANNEL
 from database.ia_filterdb import get_search_results
 
@@ -9,39 +8,44 @@ from database.ia_filterdb import get_search_results
 async def auto_pm_search(client, message):
     text = (message.text or "").strip()
 
-    # കമാൻഡുകൾ ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
         message.continue_propagation()
         return
 
-    # ഗ്രൂപ്പിലെ വിവരങ്ങൾ ഒഴിവാക്കുന്നു
     if len(text) < 2:
         return
 
     query = re.sub(r"[:_#\.\-]", " ", text).strip()
     
-    # ഡാറ്റാബേസിൽ നിന്ന് ഫയലുകൾ തിരയുന്നു
-    files, _, _ = await get_search_results(query, max_results=10)
+    try:
+        # ചില വേർഷനുകളിൽ chat_id ആവശ്യമാണ്, ചിലതിൽ ആവശ്യമില്ല
+        files, _, _ = await get_search_results(message.chat.id, query, max_results=10)
+    except TypeError:
+        files, _, _ = await get_search_results(query, max_results=10)
+    except Exception as e:
+        print(f"Search Error: {e}")
+        return
 
     if not files:
         await message.reply_text("❌ സിനിമ അല്ലെങ്കിൽ ഫയൽ ലഭ്യമല്ല! ദയവായി സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.")
         return
 
-    # യൂസർക്ക് നേരിട്ട് ഓരോ ഫയലുകളും സെൻഡ് ചെയ്യുന്നു
     for file in files:
-        file_id = file.file_id
-        file_name = getattr(file, "file_name", "Movie File")
+        file_id = getattr(file, "file_id", None) or (file.get("file_id") if isinstance(file, dict) else None)
+        file_name = getattr(file, "file_name", None) or (file.get("file_name") if isinstance(file, dict) else "Movie File")
+
+        if not file_id:
+            continue
+
         caption = CUSTOM_FILE_CAPTION.format(file_name=file_name) if CUSTOM_FILE_CAPTION else f"📁 **{file_name}**"
 
         try:
-            # ഫയൽ പ്രൈവറ്റ് ചാറ്റിലേക്ക് അയക്കുന്നു
             await client.send_cached_media(
                 chat_id=message.chat.id,
                 file_id=file_id,
                 caption=caption
             )
 
-            # ലോഗ് ചാനലിലേക്ക് ഫയൽ സെൻഡ് ലോഗ് നൽകുന്നു
             if LOG_CHANNEL:
                 user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
                 log_text = (
@@ -55,6 +59,6 @@ async def auto_pm_search(client, message):
                     disable_web_page_preview=True
                 )
 
-            await asyncio.sleep(1) # ഫ്ലഡ് വരാതിരിക്കാൻ ചെറിയ ഗ്യാപ്പ്
+            await asyncio.sleep(1.2)
         except Exception as e:
             print(f"Error sending file: {e}")
