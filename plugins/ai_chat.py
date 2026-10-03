@@ -2,17 +2,19 @@ import os
 import aiohttp
 from pyrogram import Client, filters, enums
 
-# Railway Environment Variable-ൽ നിന്ന് കീ എടുക്കുന്നു
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
-async def ask_gemini(prompt: str) -> str:
+async def ask_gemini(prompt: str):
+    # Google AI Studio API key format check
+    if not GEMINI_API_KEY:
+        return "⚠️️ എറർ: GEMINI_API_KEY റെയിൽവേയിൽ കണ്ടെത്തിയില്ല!"
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "contents": [{
             "parts": [{
-                "text": f"You are an AI assistant for the Telegram channel and movie group 'RRK Movies'. "
-                        f"Answer the user query politely, accurately, and concisely (OTT release dates, platform info, movie updates). "
-                        f"Respond in Malayalam, Manglish, or English depending on how the user asks. Keep it short and crisp with emojis.\n\nUser Question: {prompt}"
+                "text": f"You are an AI cinema assistant for the Telegram movie channel 'RRK Movies'. "
+                        f"Answer concisely with movie/OTT details in simple Malayalam, Manglish, or English.\n\nQuestion: {prompt}"
             }]
         }]
     }
@@ -24,12 +26,10 @@ async def ask_gemini(prompt: str) -> str:
                 if resp.status == 200:
                     return data["candidates"][0]["content"]["parts"][0]["text"]
                 else:
-                    err_msg = data.get("error", {}).get("message", "Unknown error")
-                    print(f"Gemini API Error: {err_msg}")
-                    return None
+                    err_msg = data.get("error", {}).get("message", str(data))
+                    return f"⚠️ Gemini API Error: {err_msg}"
         except Exception as e:
-            print(f"Connection Error: {e}")
-            return None
+            return f"⚠️ Connection Error: {str(e)}"
 
 @Client.on_message(filters.group & filters.text)
 async def ai_movie_assistant(client, message):
@@ -50,7 +50,7 @@ async def ai_movie_assistant(client, message):
         any(trigger in text.lower() for trigger in triggers)
     )
 
-    if not is_question or not GEMINI_API_KEY:
+    if not is_question:
         return
 
     try:
