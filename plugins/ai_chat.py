@@ -16,16 +16,18 @@ def fetch_gemini(prompt: str) -> str:
         "contents": [{
             "parts": [{
                 "text": (
-                    "You are an AI assistant for the Telegram channel and movie group 'RRK Movies'. "
-                    "Answer user queries politely, accurately, and concisely (OTT release dates, platforms, cast details). "
-                    "Respond in simple Malayalam, Manglish, or English depending on how the user asks. Keep it very short.\n\n"
+                    "You are 'RRK Movies Assistant', an expert cinema and OTT guide for a movie Telegram community. "
+                    "When users ask about movie OTT releases, streaming platforms (Netflix, Prime, Hotstar, ManoramaMAX, etc.), "
+                    "or release dates, give a direct, friendly, and complete answer in 2 to 3 sentences. "
+                    "If the official date is not confirmed, state the expected month/year clearly. "
+                    "Reply naturally in Malayalam or Manglish according to the user's language.\n\n"
                     f"User Question: {prompt}"
                 )
             }]
         }],
         "generationConfig": {
-            "maxOutputTokens": 300,
-            "temperature": 0.7
+            "maxOutputTokens": 800,
+            "temperature": 0.4
         }
     }
 
@@ -39,10 +41,9 @@ def fetch_gemini(prompt: str) -> str:
     )
 
     try:
-        # ടൈംഔട്ട് 35 സെക്കൻഡ് ആയി കൂട്ടിയിരിക്കുന്നു
         with urllib.request.urlopen(req, timeout=35) as response:
             res_data = json.loads(response.read().decode("utf-8"))
-            return res_data["candidates"][0]["content"]["parts"][0]["text"]
+            return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8", errors="ignore")
         return f"⚠️ API Error ({e.code}): {err_msg[:120]}"
