@@ -1,5 +1,4 @@
 import re
-import urllib.parse
 import asyncio
 import os
 import random
@@ -15,7 +14,6 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def get_pure_title(filename):
-    """ഫയൽ നെയിമിൽ നിന്നുള്ള ടാഗുകൾ മാറ്റി ശുദ്ധമായ സിനിമയുടെ പേര് ഉണ്ടാക്കുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -39,43 +37,50 @@ def get_caption_and_buttons(movie_title, entries):
         f"          <b>Released ✅</b>\n"
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📥 <i>സിനിമ ഡൗൺലോഡ് ചെയ്യാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്യുക 👇</i>"
+        f"━━━━━━━━━━━━━━━━━━━━"
     )
     
-    bot_username = temp.U_NAME
-    bot_chat_link = f"https://t.me/{bot_username}"
-
     buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("⚡ Search Movie Here ⚡", switch_inline_query_current_chat=movie_title)
-        ],
-        [
-            InlineKeyboardButton("🤖 Go to Bot", url=bot_chat_link)
-        ]
+        [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=movie_title)]
     ])
     
     return caption, buttons
 
-# 1. പുതിയ ഫയൽ ചാനലിൽ വരുമ്പോൾ സ്വയം സേവ് ചെയ്യുകയും ഗ്രൂപ്പിലേക്ക് പോസ്റ്റ് ചെയ്യുകയും ചെയ്യുന്നു
-@Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
-async def auto_post_to_group(client, message):
-    media = message.document or message.video
-    if not media:
-        return
-
-    # ഫയൽ ഒരേസമയം MongoDB-യിലേക്ക് സേവ് ചെയ്യുന്നു
+# 1. ബോട്ടിലേക്ക് നേരിട്ട് അയക്കുന്ന/ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ MongoDB-ൽ സേവ് ചെയ്യാൻ
+@Client.on_message(filters.private & (filters.document | filters.video))
+async def save_direct_files(client, message):
     try:
-        await save_file(media)
+        saved = await save_file(client, message)
     except TypeError:
         try:
-            await save_file(client, message)
+            saved = await save_file(message)
+        except Exception:
+            saved = False
+    except Exception:
+        saved = False
+
+    if saved:
+        media = message.document or message.video
+        await message.reply_text(f"✅ <b>Successfully Saved:</b>\n<code>{media.file_name}</code>", quote=True)
+
+# 2. ചാനലിൽ വരുന്ന ഫയലുകൾ ഗ്രൂപ്പിലേക്ക് പോസ്റ്റ് ചെയ്യാനും MongoDB-ൽ സേവ് ചെയ്യാനും
+@Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
+async def auto_post_to_group(client, message):
+    try:
+        await save_file(client, message)
+    except TypeError:
+        try:
+            await save_file(message)
         except Exception:
             pass
     except Exception as err:
         print(f"Save File Error: {err}")
 
     if not UPDATE_CHANNEL:
+        return
+
+    media = message.document or message.video
+    if not media:
         return
 
     file_name = media.file_name or "New Movie"
@@ -131,51 +136,42 @@ async def auto_post_to_group(client, message):
             "entries": entries
         }
 
-
-# 2. ചാനലിലെ പഴയ ഫയലുകൾ MongoDB-ലേക്ക് ഇൻഡെക്സ് ചെയ്യാനുള്ള അഡ്മിൻ കമാൻഡ്: /scan
-@Client.on_message(filters.command("scan") & filters.private)
-async def scan_channel_files(client, message):
+# 3. മെസ്സേജ് ഐഡി വെച്ച് ഇൻഡെക്സ് ചെയ്യാനുള്ള ലളിതമായ കമാൻഡ്
+# ഉപയോഗിക്കേണ്ട രീതി: /index 14 306
+@Client.on_message(filters.command("index") & filters.private)
+async def custom_index_command(client, message):
     user_id = message.from_user.id
     admin_list = [int(admin) if str(admin).isdigit() else admin for admin in ADMINS] if isinstance(ADMINS, list) else [int(ADMINS)]
-    
     if user_id not in admin_list:
-        return await message.reply_text("⚠️ നിങ്ങൾക്ക് ഇതിനുള്ള അഡ്മിൻ അധികാരമില്ല!")
+        return
 
-    status_msg = await message.reply_text("⏳ ചാനലിലെ പഴയ ഫയലുകൾ സ്കാൻ ചെയ്യുന്നു... ദയവായി കാത്തിരിക്കുക.")
-    total_saved = 0
-    scanned_count = 0
+    args = message.text.split()
+    if len(args) < 3:
+        return await message.reply_text("ഉപയോഗിക്കേണ്ട രീതി:\n<code>/index 14 306</code>\n(തുടക്കത്തിലെ നമ്പർ, അവസാന നമ്പർ)")
 
-    target_channels = []
-    if isinstance(CHANNELS, list):
-        target_channels.extend([int(c) for c in CHANNELS])
-    elif CHANNELS:
-        target_channels.append(int(CHANNELS))
+    try:
+        start_id = int(args[1])
+        end_id = int(args[2])
+    except ValueError:
+        return await message.reply_text("നമ്പറുകൾ കൃത്യമായി നൽകുക!")
 
-    for ch_id in target_channels:
+    # ആദ്യത്തെ ചാനൽ ഐഡി എടുക്കുന്നു
+    target_channel = CHANNELS[0] if isinstance(CHANNELS, list) else CHANNELS
+
+    status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള മെസ്സേജുകൾ സ്കാൻ ചെയ്യുന്നു...")
+    saved_count = 0
+
+    for msg_id in range(start_id, end_id + 1):
         try:
-            async for ch_msg in client.get_chat_history(ch_id):
-                scanned_count += 1
-                media = ch_msg.document or ch_msg.video
-                if media:
-                    try:
-                        saved = await save_file(media)
-                    except TypeError:
-                        try:
-                            saved = await save_file(client, ch_msg)
-                        except TypeError:
-                            saved = await save_file(ch_msg)
-                        except Exception:
-                            saved = False
-                    except Exception:
-                        saved = False
-                    
-                    if saved:
-                        total_saved += 1
-        except Exception as e:
-            print(f"Scan error in {ch_id}: {e}")
+            ch_msg = await client.get_messages(target_channel, msg_id)
+            if ch_msg and (ch_msg.document or ch_msg.video):
+                try:
+                    s = await save_file(client, ch_msg)
+                except TypeError:
+                    s = await save_file(ch_msg)
+                if s:
+                    saved_count += 1
+        except Exception:
+            pass
 
-    await status_msg.edit_text(
-        f"✅ <b>സ്കാനിംഗ് പൂർത്തിയായി!</b>\n\n"
-        f"📊 ആകെ പരിശോധിച്ച മെസ്സേജുകൾ: <b>{scanned_count}</b>\n"
-        f"📁 പുതുതായി സേവ് ചെയ്ത ഫയലുകൾ: <b>{total_saved}</b>"
-    )
+    await status_msg.edit_text(f"✅ പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത ഫയലുകൾ: <b>{saved_count}</b>")
