@@ -45,14 +45,38 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# 1. ചാനലിൽ പുതിയ ഫയലുകൾ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റും ഒപ്പം MongoDB സേവും
+# 1. ബോട്ടിലേക്ക് നേരിട്ട് അയക്കുന്ന/ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ MongoDB-യിൽ സേവ് ചെയ്യാൻ
+@Client.on_message(filters.private & (filters.document | filters.video))
+async def save_direct_files(client, message):
+    media = message.document or message.video
+    if not media:
+        return
+
+    # ia_filterdb-യ്ക്ക് അനുയോജ്യമായ രീതിയിൽ ഫീൽഡുകൾ സജ്ജമാക്കുന്നു
+    if not hasattr(media, 'file_type'):
+        media.file_type = "video" if message.video else "document"
+    if not hasattr(media, 'caption'):
+        media.caption = None
+
+    try:
+        saved = await save_file(media)
+        # save_file റിട്ടേൺ ചെയ്യുന്നത് (True, 1) അല്ലെങ്കിൽ (False, 0)
+        is_success = saved[0] if isinstance(saved, tuple) else saved
+        if is_success:
+            await message.reply_text(f"✅ <b>ഡാറ്റാബേസിൽ വിജയകരമായി സേവ് ചെയ്തു!</b>\n\n📁 <code>{media.file_name}</code>", quote=True)
+        else:
+            await message.reply_text(f"ℹ️ <b>ഈ ഫയൽ ഇതിനകം ഡാറ്റാബേസിൽ ഉള്ളതാണ്:</b>\n\n📁 <code>{media.file_name}</code>", quote=True)
+    except Exception as e:
+        await message.reply_text(f"⚠️ <b>സേവ് ചെയ്യാൻ കഴിഞ്ഞില്ല:</b>\n<code>{e}</code>", quote=True)
+
+
+# 2. ചാനലിൽ ഫയൽ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റിങ് + സേവിങ്
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
     media = message.document or message.video
     if not media:
         return
 
-    # ia_filterdb-യ്ക്ക് ആവശ്യമായ file_type സുരക്ഷിതമായി നൽകുന്നു
     try:
         if not hasattr(media, 'file_type'):
             media.file_type = "video" if message.video else "document"
@@ -60,7 +84,7 @@ async def auto_post_to_group(client, message):
             media.caption = None
         await save_file(media)
     except Exception as err:
-        print(f"Database Save Error: {err}")
+        print(f"Channel DB Save Error: {err}")
 
     if not UPDATE_CHANNEL:
         return
