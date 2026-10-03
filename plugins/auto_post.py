@@ -47,7 +47,7 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ MongoDB-ൽ സേവ് ചെയ്യാൻ
+# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാൻ
 @Client.on_message(filters.private & (filters.document | filters.video))
 async def save_direct_files(client, message):
     saved = False
@@ -56,9 +56,8 @@ async def save_direct_files(client, message):
     except TypeError:
         try:
             saved = await save_file(message)
-        except TypeError:
-            media = message.document or message.video
-            saved = await save_file(media)
+        except Exception:
+            saved = False
     except Exception:
         saved = False
 
@@ -74,9 +73,8 @@ async def auto_post_to_group(client, message):
     except TypeError:
         try:
             await save_file(message)
-        except TypeError:
-            media = message.document or message.video
-            await save_file(media)
+        except Exception:
+            pass
     except Exception as err:
         print(f"Save File Error: {err}")
 
@@ -140,7 +138,7 @@ async def auto_post_to_group(client, message):
             "entries": entries
         }
 
-# 3. മെസ്സേജ് ഐഡി വെച്ച് പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനും എറർ കണ്ടെത്താനുമുള്ള അഡ്മിൻ കമാൻഡ്
+# 3. മെസ്സേജ് ഐഡി വെച്ച് പഴയ ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യാനുള്ള അഡ്മിൻ കമാൻഡ്
 # ഉപയോഗിക്കേണ്ട രീതി: /index 14 306
 @Client.on_message(filters.command("index") & filters.private)
 async def custom_index_command(client, message):
@@ -169,16 +167,16 @@ async def custom_index_command(client, message):
             if ch_msg and (ch_msg.document or ch_msg.video):
                 saved = False
                 try:
+                    # EvaMaria ബോട്ടിന് പൂർണ്ണ മെസ്സേജ് ഒബ്ജക്റ്റാണ് നൽകേണ്ടത്
                     saved = await save_file(client, ch_msg)
-                except Exception as e1:
+                except TypeError:
                     try:
                         saved = await save_file(ch_msg)
-                    except Exception as e2:
-                        try:
-                            media = ch_msg.document or ch_msg.video
-                            saved = await save_file(media)
-                        except Exception as e3:
-                            last_error = f"Save error: {e3}"
+                    except Exception as e:
+                        last_error = f"Save error: {e}"
+                except Exception as e:
+                    last_error = f"Save error: {e}"
+
                 if saved:
                     saved_count += 1
         except Exception as e:
@@ -186,6 +184,6 @@ async def custom_index_command(client, message):
 
     reply_text = f"✅ പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത ഫയലുകൾ: <b>{saved_count}</b>"
     if last_error and saved_count == 0:
-        reply_text += f"\n\n⚠️ <b>Error:</b> <code>{last_error}</code>"
+        reply_text += f"\n\n⚠️️ <b>Error:</b> <code>{last_error}</code>"
 
     await status_msg.edit_text(reply_text)
