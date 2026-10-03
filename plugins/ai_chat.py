@@ -1,16 +1,14 @@
 import os
 import json
 import asyncio
+import time
 import urllib.request
 from pyrogram import Client, filters, enums
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
-def fetch_gemini(prompt: str) -> str:
-    if not GEMINI_API_KEY:
-        return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
-
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
+def request_model(model_name: str, prompt: str) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     
     payload = {
         "contents": [{
@@ -19,14 +17,14 @@ def fetch_gemini(prompt: str) -> str:
                     "You are 'RRK Movies Assistant', an expert cinema and OTT guide for a movie Telegram community. "
                     "When users ask about movie OTT releases, streaming platforms (Netflix, Prime, Hotstar, ManoramaMAX, etc.), "
                     "or release dates, give a direct, friendly, and complete answer in 2 to 3 sentences. "
-                    "If the official date is not confirmed, state the expected month/year clearly. "
-                    "Reply naturally in Malayalam or Manglish according to the user's language.\n\n"
+                    "If the official date is not confirmed, state the expected period clearly. "
+                    "Reply naturally in Malayalam or Manglish according to the user's query.\n\n"
                     f"User Question: {prompt}"
                 )
             }]
         }],
         "generationConfig": {
-            "maxOutputTokens": 800,
+            "maxOutputTokens": 600,
             "temperature": 0.4
         }
     }
@@ -40,15 +38,34 @@ def fetch_gemini(prompt: str) -> str:
         }
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=35) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode("utf-8", errors="ignore")
-        return f"⚠️ API Error ({e.code}): {err_msg[:120]}"
-    except Exception as e:
-        return f"⚠️ Connection Error: {str(e)}"
+    with urllib.request.urlopen(req, timeout=25) as response:
+        res_data = json.loads(response.read().decode("utf-8"))
+        return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+def fetch_gemini(prompt: str) -> str:
+    if not GEMINI_API_KEY:
+        return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
+
+    # 503 ഒഴിവാക്കാൻ ഒന്നിലധികം മോഡലുകൾ ട്രൈ ചെയ്യുന്നു
+    models = ["gemini-flash-latest", "gemini-1.5-flash-8b", "gemini-2.0-flash"]
+    
+    last_error = ""
+    for model in models:
+        for _ in range(2):
+            try:
+                return request_model(model, prompt)
+            except urllib.error.HTTPError as e:
+                if e.code in (503, 429):
+                    time.sleep(1.5)
+                    continue
+                err_msg = e.read().decode("utf-8", errors="ignore")
+                last_error = f"API Error ({e.code}): {err_msg[:100]}"
+                break
+            except Exception as e:
+                last_error = str(e)
+                break
+
+    return f"⚠️ Server Busy: ദയവായി അല്പം കഴിഞ്ഞ് വീണ്ടും ചോദിക്കുക. ({last_error})"
 
 @Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
 async def ai_movie_assistant(client, message):
