@@ -6,7 +6,7 @@ from info import LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
 
-@Client.on_message(filters.private & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=1)
+@Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=1)
 async def pm_movie_sender(client, message):
     query = (message.text or "").strip()
 
@@ -24,7 +24,9 @@ async def pm_movie_sender(client, message):
         return
 
     if not files:
-        await message.reply_text("❌ സിനിമ ലഭ്യമല്ല! ദയവായി പേര് പരിശോധിച്ച് വീണ്ടും അയക്കുക.")
+        # ഗ്രൂപ്പുകളിൽ വെറുതെ വരുന്ന ചാറ്റുകൾക്ക് ഇടയിൽ "സിനിമ ലഭ്യമല്ല" എന്ന് മെസ്സേജ് അയക്കാതിരിക്കാൻ:
+        if message.chat.type == enums.ChatType.PRIVATE:
+            await message.reply_text("❌ സിനിമ ലഭ്യമല്ല! ദയവായി പേര് പരിശോധിച്ച് വീണ്ടും അയക്കുക.")
         return
 
     for doc in files:
@@ -51,10 +53,12 @@ async def pm_movie_sender(client, message):
 
             if LOG_CHANNEL:
                 try:
-                    user_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
+                    user_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>" if message.from_user else "Anonymous"
+                    chat_title = message.chat.title if message.chat.title else "PM"
                     log_text = (
                         f"📁 <b>#FileSent</b>\n\n"
-                        f"👤 <b>User:</b> {user_info} (<code>{message.from_user.id}</code>)\n"
+                        f"👥 <b>Chat:</b> {chat_title}\n"
+                        f"👤 <b>User:</b> {user_info}\n"
                         f"🎬 <b>Film/File:</b> <code>{file_name}</code>"
                     )
                     await client.send_message(
