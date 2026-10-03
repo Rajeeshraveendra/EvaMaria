@@ -1,31 +1,26 @@
-import re
-import asyncio
 import logging
-from pyrogram import Client, filters
-from database.ia_filterdb import Media
+import asyncio
+from pyrogram import Client, filters, enums
+from database.ia_filterdb import get_search_results
 from info import CUSTOM_FILE_CAPTION, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
 
-@Client.on_message(filters.private & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]))
+@Client.on_message(filters.private & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=1)
 async def pm_movie_sender(client, message):
-    text = (message.text or "").strip()
-    
-    if text.startswith(("/", "!", "#")):
+    query = (message.text or "").strip()
+
+    if query.startswith(("/", "!", "#")):
         return
 
-    if len(text) < 2:
+    if len(query) < 2:
         return
 
-    # User Query Regex Search
-    raw_pattern = ".*".join([re.escape(w) for w in text.split()])
-    find_query = {"file_name": {"$regex": raw_pattern, "$options": "i"}}
-
+    # EvaMaria Original DB Search
     try:
-        cursor = Media.collection.find(find_query).limit(10)
-        files = await cursor.to_list(length=10)
+        files, _, _ = await get_search_results(chat_id=message.chat.id, query=query, max_results=10)
     except Exception as e:
-        logger.error(f"Search DB Query Error: {e}")
+        logger.error(f"Search Query Error: {e}")
         return
 
     if not files:
@@ -33,32 +28,34 @@ async def pm_movie_sender(client, message):
         return
 
     for doc in files:
-        file_id = doc.get("file_id")
-        file_name = doc.get("file_name", "Movie File")
+        file_id = getattr(doc, "file_id", None) or doc.get("file_id")
+        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else doc.get("file_name", "Movie File")
 
         if not file_id:
             continue
 
-        caption = CUSTOM_FILE_CAPTION.format(file_name=file_name) if CUSTOM_FILE_CAPTION else f"📁 **{file_name}**"
+        caption = CUSTOM_FILE_CAPTION.format(file_name=file_name) if CUSTOM_FILE_CAPTION else f"📁 <b>{file_name}</b>"
 
         try:
             await client.send_cached_media(
                 chat_id=message.chat.id,
                 file_id=file_id,
-                caption=caption
+                caption=caption,
+                parse_mode=enums.ParseMode.HTML
             )
 
             if LOG_CHANNEL:
                 try:
-                    user_info = f"[{message.from_user.first_name}](tg://user?id={message.from_user.id})"
+                    user_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
                     log_text = (
-                        f"📁 **#FileSent**\n\n"
-                        f"👤 **User:** {user_info} (`{message.from_user.id}`)\n"
-                        f"🎬 **Film/File:** `{file_name}`"
+                        f"📁 <b>#FileSent</b>\n\n"
+                        f"👤 <b>User:</b> {user_info} (<code>{message.from_user.id}</code>)\n"
+                        f"🎬 <b>Film/File:</b> <code>{file_name}</code>"
                     )
                     await client.send_message(
                         chat_id=LOG_CHANNEL,
                         text=log_text,
+                        parse_mode=enums.ParseMode.HTML,
                         disable_web_page_preview=True
                     )
                 except Exception:
