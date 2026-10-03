@@ -50,39 +50,38 @@ def get_caption_and_buttons(movie_title, entries):
 # 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാൻ
 @Client.on_message(filters.private & (filters.document | filters.video))
 async def save_direct_files(client, message):
+    media = message.document or message.video
+    if not media:
+        return
+
     saved = False
     try:
-        saved = await save_file(client, message)
-    except TypeError:
+        saved = await save_file(media)
+    except Exception:
         try:
-            saved = await save_file(message)
+            saved = await save_file(client, message)
         except Exception:
             saved = False
-    except Exception:
-        saved = False
 
     if saved:
-        media = message.document or message.video
-        await message.reply_text(f"✅ <b>ഫയൽ ഡാറ്റാബേസിൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
+        await message.reply_text(f"✅ <b>ഫയൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
 
 # 2. ചാനലിൽ പുതിയ ഫയലുകൾ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റും ഒപ്പം MongoDB സേവും
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
-    try:
-        await save_file(client, message)
-    except TypeError:
-        try:
-            await save_file(message)
-        except Exception:
-            pass
-    except Exception as err:
-        print(f"Save File Error: {err}")
-
-    if not UPDATE_CHANNEL:
-        return
-
     media = message.document or message.video
     if not media:
+        return
+
+    try:
+        await save_file(media)
+    except Exception:
+        try:
+            await save_file(client, message)
+        except Exception:
+            pass
+
+    if not UPDATE_CHANNEL:
         return
 
     file_name = media.file_name or "New Movie"
@@ -157,17 +156,7 @@ async def custom_index_command(client, message):
     except ValueError:
         return await message.reply_text("നമ്പറുകൾ കൃത്യമായി നൽകുക!")
 
-    status_msg = await message.reply_text("⏳ ചാനലുമായി ബന്ധം സ്ഥാപിക്കുന്നു...")
-
-    # പിയർ കാഷെ ഉറപ്പുവരുത്താൻ ചാനലിലേക്ക് ഒരു ടെസ്റ്റ് മെസ്സേജ് അയച്ച് ഡിലീറ്റ് ചെയ്യുന്നു
-    try:
-        init_msg = await client.send_message(DB_CHANNEL_ID, "🔄 <i>Indexing In Progress...</i>")
-        await asyncio.sleep(1)
-        await init_msg.delete()
-    except Exception as e:
-        return await status_msg.edit_text(f"⚠️ <b>ചാനൽ ആക്സസ് എറർ:</b> <code>{e}</code>\nബോട്ടിന് ചാനലിൽ മെസ്സേജ് അയക്കാനുള്ള പെർമിഷൻ ഉണ്ടോ എന്ന് നോക്കുക.")
-
-    await status_msg.edit_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ സ്കാൻ ചെയ്യുന്നു...")
+    status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ ഇൻഡെക്സ് ചെയ്യുന്നു...")
     saved_count = 0
     last_error = None
 
@@ -175,16 +164,16 @@ async def custom_index_command(client, message):
         try:
             ch_msg = await client.get_messages(DB_CHANNEL_ID, msg_id)
             if ch_msg and (ch_msg.document or ch_msg.video):
+                media = ch_msg.document or ch_msg.video
                 saved = False
                 try:
-                    saved = await save_file(client, ch_msg)
-                except TypeError:
+                    # media object നേരിട്ട് save_file-ലേക്ക് നൽകുന്നു
+                    saved = await save_file(media)
+                except Exception as e1:
                     try:
-                        saved = await save_file(ch_msg)
-                    except Exception as e:
-                        last_error = f"Save error: {e}"
-                except Exception as e:
-                    last_error = f"Save error: {e}"
+                        saved = await save_file(client, ch_msg)
+                    except Exception as e2:
+                        last_error = f"Save error: {e1} | {e2}"
 
                 if saved:
                     saved_count += 1
