@@ -16,9 +16,9 @@ async def pm_movie_sender(client, message):
     if len(query) < 2:
         return
 
-    # EvaMaria Original DB Search
+    # EvaMaria search query without chat_id parameter
     try:
-        files, _, _ = await get_search_results(chat_id=message.chat.id, query=query, max_results=10)
+        files, _, _ = await get_search_results(query, max_results=10)
     except Exception as e:
         logger.error(f"Search Query Error: {e}")
         return
@@ -28,8 +28,8 @@ async def pm_movie_sender(client, message):
         return
 
     for doc in files:
-        file_id = getattr(doc, "file_id", None) or doc.get("file_id")
-        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else doc.get("file_name", "Movie File")
+        file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
+        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
 
         if not file_id:
             continue
