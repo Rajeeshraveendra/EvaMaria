@@ -47,49 +47,63 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# 1. ബോട്ടിലേക്ക് അയക്കുന്ന അല്ലെങ്കിൽ ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാനും എറർ കൃത്യമായി കാണിക്കാനും
+# ia_filterdb-ൽ കൃത്യമായി സേവ് ആവാൻ മീഡിയ ഒബ്ജക്റ്റ് പാക്ക് ചെയ്യുന്ന ഹെൽപ്പർ ഫംഗ്ഷൻ
+async def save_media_to_db(message):
+    media = message.document or message.video or message.audio
+    if not media:
+        return False, "No media"
+    
+    # EvaMaria പ്രതീക്ഷിക്കുന്ന ഫീൽഡുകൾ ചേർക്കുന്നു
+    if not hasattr(media, 'file_type'):
+        if message.video:
+            media.file_type = "video"
+        elif message.audio:
+            media.file_type = "audio"
+        else:
+            media.file_type = "document"
+            
+    if not hasattr(media, 'caption'):
+        media.caption = message.caption
+
+    try:
+        res = await save_file(media)
+        # res എന്നത് (True, 1) അല്ലെങ്കിൽ (False, 0) ആണ്
+        if isinstance(res, tuple):
+            saved, code = res
+            if saved:
+                return True, "Saved"
+            elif code == 0:
+                return False, "Already in database"
+            else:
+                return False, "Validation error"
+        return bool(res), "Done"
+    except Exception as e:
+        return False, str(e)
+
+
+# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാൻ
 @Client.on_message(filters.private & (filters.document | filters.video), group=-1)
 async def save_direct_files(client, message):
+    saved, msg = await save_media_to_db(message)
     media = message.document or message.video
-    if not media:
-        return
-
-    saved = False
-    err_info = ""
-
-    # പല രീതിയിലുള്ള save_file കോളിംഗുകൾ പരീക്ഷിക്കുന്നു
-    try:
-        saved = await save_file(client, message)
-    except Exception as e1:
-        try:
-            saved = await save_file(message)
-        except Exception as e2:
-            try:
-                saved = await save_file(media)
-            except Exception as e3:
-                err_info = f"E1: {e1} | E2: {e2} | E3: {e3}"
-
     if saved:
-        await message.reply_text(f"✅ <b>ഫയൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
+        await message.reply_text(f"✅ <b>ഡാറ്റാബേസിൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
+    elif msg == "Already in database":
+        await message.reply_text(f"ℹ️ <b>ഈ ഫയൽ ഇതിനകം ഡാറ്റാബേസിൽ ഉണ്ട്:</b>\n<code>{media.file_name}</code>", quote=True)
     else:
-        await message.reply_text(f"⚠️ <b>സേവ് ചെയ്യാൻ കഴിഞ്ഞില്ല:</b>\n<code>{err_info}</code>", quote=True)
+        await message.reply_text(f"⚠️ <b>സേവ് എറർ:</b> <code>{msg}</code>", quote=True)
+
 
 # 2. ചാനലിൽ പുതിയ ഫയലുകൾ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റും ഒപ്പം MongoDB സേവും
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
-    media = message.document or message.video
-    if not media:
-        return
-
-    try:
-        await save_file(client, message)
-    except Exception:
-        try:
-            await save_file(message)
-        except Exception:
-            pass
+    await save_media_to_db(message)
 
     if not UPDATE_CHANNEL:
+        return
+
+    media = message.document or message.video
+    if not media:
         return
 
     file_name = media.file_name or "New Movie"
