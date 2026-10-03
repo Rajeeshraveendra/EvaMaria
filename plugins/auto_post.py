@@ -157,7 +157,17 @@ async def custom_index_command(client, message):
     except ValueError:
         return await message.reply_text("നമ്പറുകൾ കൃത്യമായി നൽകുക!")
 
-    status_msg = await message.reply_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള മെസ്സേജുകൾ സ്കാൻ ചെയ്യുന്നു...")
+    status_msg = await message.reply_text("⏳ ചാനലുമായി ബന്ധം സ്ഥാപിക്കുന്നു...")
+
+    # പിയർ കാഷെ ഉറപ്പുവരുത്താൻ ചാനലിലേക്ക് ഒരു ടെസ്റ്റ് മെസ്സേജ് അയച്ച് ഡിലീറ്റ് ചെയ്യുന്നു
+    try:
+        init_msg = await client.send_message(DB_CHANNEL_ID, "🔄 <i>Indexing In Progress...</i>")
+        await asyncio.sleep(1)
+        await init_msg.delete()
+    except Exception as e:
+        return await status_msg.edit_text(f"⚠️ <b>ചാനൽ ആക്സസ് എറർ:</b> <code>{e}</code>\nബോട്ടിന് ചാനലിൽ മെസ്സേജ് അയക്കാനുള്ള പെർമിഷൻ ഉണ്ടോ എന്ന് നോക്കുക.")
+
+    await status_msg.edit_text(f"⏳ {start_id} മുതൽ {end_id} വരെയുള്ള ഫയലുകൾ സ്കാൻ ചെയ്യുന്നു...")
     saved_count = 0
     last_error = None
 
@@ -167,7 +177,6 @@ async def custom_index_command(client, message):
             if ch_msg and (ch_msg.document or ch_msg.video):
                 saved = False
                 try:
-                    # EvaMaria ബോട്ടിന് പൂർണ്ണ മെസ്സേജ് ഒബ്ജക്റ്റാണ് നൽകേണ്ടത്
                     saved = await save_file(client, ch_msg)
                 except TypeError:
                     try:
@@ -184,6 +193,6 @@ async def custom_index_command(client, message):
 
     reply_text = f"✅ പൂർത്തിയായി!\n📁 ആകെ സേവ് ചെയ്ത ഫയലുകൾ: <b>{saved_count}</b>"
     if last_error and saved_count == 0:
-        reply_text += f"\n\n⚠️️ <b>Error:</b> <code>{last_error}</code>"
+        reply_text += f"\n\n⚠️ <b>Error:</b> <code>{last_error}</code>"
 
     await status_msg.edit_text(reply_text)
