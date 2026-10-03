@@ -10,7 +10,8 @@ def fetch_gemini(prompt: str) -> str:
     if not GEMINI_API_KEY:
         return "⚠️ Error: GEMINI_API_KEY is missing in Railway Variables!"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # v1beta എൻഡ്‌പോയിന്റിൽ gemini-1.5-flash-latest അല്ലെങ്കിൽ gemini-2.0-flash കൃത്യമായി വർക്ക് ചെയ്യും
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
     
     payload = {
         "contents": [{
@@ -32,21 +33,19 @@ def fetch_gemini(prompt: str) -> str:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=12) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["candidates"][0]["content"]["parts"][0]["text"]
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8", errors="ignore")
-        return f"⚠️ API Error ({e.code}): {err_msg[:100]}"
+        return f"⚠️ API Error ({e.code}): {err_msg[:120]}"
     except Exception as e:
         return f"⚠️ Connection Error: {str(e)}"
 
-# group പരാമീറ്റർ ഒഴിവാക്കി സാധാരണ ഫിൽട്ടർ നൽകുന്നു, ഇതോടെ മറ്റ് കമാൻഡുകൾ ബ്ലോക്ക് ആകില്ല
 @Client.on_message(filters.group & filters.text)
 async def ai_movie_assistant(client, message):
     text = (message.text or "").strip()
 
-    # കമാൻഡുകൾ (/start, /stats മുതലായവ) പൂർണ്ണമായും ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
         return
 
@@ -60,7 +59,6 @@ async def ai_movie_assistant(client, message):
         any(trigger in text.lower() for trigger in triggers)
     )
 
-    # ചോദ്യമാണെങ്കിൽ മാത്രം Gemini മറുപടി നൽകുന്നു
     if not is_question:
         return
 
