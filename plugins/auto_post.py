@@ -14,7 +14,7 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def get_pure_title(filename):
-    """ഫയൽ നെയിമിൽ നിന്ന് സിനിമയുടെ പ്രധാന പേര് മാത്രം എടുക്കുന്നു"""
+    """[MM], ബ്രാക്കറ്റുകൾ, ക്വാളിറ്റി ടാഗുകൾ എന്നിവ മാറ്റി കൃത്യമായ പേര് കണ്ടെത്തുന്നു"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -25,17 +25,9 @@ def get_pure_title(filename):
         if any(w.lower().startswith(t) for t in tags):
             break
         clean.append(w)
+    
     title = " ".join(clean).strip()
-    return title if title else "Movie"
-
-def get_best_search_word(clean_title):
-    """ഡാറ്റാബേസിൽ 100% റിസൾട്ട് വരാൻ 'The', 'A' ഒഴിവാക്കി മെയിൻ വാക്ക് എടുക്കുന്നു"""
-    words = clean_title.split()
-    # 'The Love Hypothesis' ആണെങ്കിൽ 'Love Hypothesis' അല്ലെങ്കിൽ 'Hypothesis'
-    filtered = [w for w in words if w.lower() not in ["the", "a", "an", "movie"]]
-    if filtered:
-        return " ".join(filtered[:2])
-    return clean_title
+    return title if title else (words[0] if words else "Movie")
 
 def get_caption_and_buttons(movie_title, entries):
     movies_list_text = "\n".join(entries)
@@ -47,22 +39,23 @@ def get_caption_and_buttons(movie_title, entries):
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📥 <i>ഫയലുകൾ ലഭിക്കാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്യുക 👇</i>"
+        f"📥 <i>സിനിമ ലഭിക്കാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്യുക 👇</i>"
     )
     
     bot_username = temp.U_NAME
-    search_keyword = get_best_search_word(movie_title)
     
-    # EvaMaria ബോട്ടിൽ സെർച്ച് ഫലങ്ങൾ നേരിട്ട് വരാൻ ഈ ഡീപ് ലിങ്ക് ഉപയോഗിക്കാം
-    encoded_search = urllib.parse.quote_plus(search_keyword)
-    deep_link = f"https://t.me/{bot_username}?start=search_{encoded_search}"
-    
+    # 1. ബോട്ടിൽ നേരിട്ട് സെർച്ച് ചെയ്യാൻ ഉപയോക്താവിനെ എത്തിക്കുന്ന ലിങ്ക്
+    # ബോട്ടിലേക്ക് ചെന്നയുടൻ ഈ പേര് പേസ്റ്റ് ചെയ്ത് അയക്കാനുള്ള ഷെയർ ലിങ്ക്
+    encoded_title = urllib.parse.quote(movie_title)
+    share_to_bot = f"https://t.me/share/url?url={encoded_title}&text="
+    bot_chat_link = f"https://t.me/{bot_username}"
+
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📥 Download (Get in Bot)", url=deep_link)
+            InlineKeyboardButton("⚡ Search Movie Here ⚡", switch_inline_query_current_chat=movie_title)
         ],
         [
-            InlineKeyboardButton("⚡ Search Here", switch_inline_query_current_chat=search_keyword)
+            InlineKeyboardButton("🤖 Go to Bot", url=bot_chat_link)
         ]
     ])
     
@@ -81,11 +74,7 @@ async def auto_post_to_group(client, message):
     base_title = get_pure_title(file_name)
     bot_username = temp.U_NAME
 
-    search_keyword = get_best_search_word(base_title)
-    encoded_search = urllib.parse.quote_plus(search_keyword)
-    deep_link = f"https://t.me/{bot_username}?start=search_{encoded_search}"
-    
-    line_entry = f"🎬 <a href=\"{deep_link}\">{file_name}</a>"
+    line_entry = f"🎬 {file_name}"
 
     async with LOCK:
         if base_title in POST_CACHE:
