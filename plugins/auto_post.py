@@ -14,7 +14,8 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def clean_movie_title(filename):
-    """ഫയൽ നെയിമിൽ നിന്ന് സിനിമയുടെ പ്രധാന പേര് മാത്രം കൃത്യമായി വേർതിരിച്ചെടുക്കുന്നു"""
+    """ഫയൽ നെയിമിൽ നിന്നുള്ള ടാഗുകൾ, സ്പെഷ്യൽ ചിഹ്നങ്ങൾ എന്നിവ മാറ്റി സെർച്ച് കീവേഡ് ഉണ്ടാക്കുന്നു"""
+    # ബ്രാക്കറ്റിലുള്ള [MM], (2026) തുടങ്ങിയവ നീക്കം ചെയ്യുന്നു
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
@@ -24,13 +25,20 @@ def clean_movie_title(filename):
     for w in words:
         if any(w.lower().startswith(t) for t in tags):
             break
-        # അനാവശ്യ സ്പെഷ്യൽ ചിഹ്നങ്ങൾ മാറ്റുന്നു
+        # സ്പെഷ്യൽ ചിഹ്നങ്ങൾ മാറ്റുന്നു
         w_clean = re.sub(r"[^a-zA-Z0-9]", "", w)
         if w_clean:
             clean_words.append(w_clean)
-    
-    final_title = " ".join(clean_words[:4]).strip().title()
+            
+    final_title = " ".join(clean_words).strip()
     return final_title if final_title else "Movie"
+
+def get_search_keyword(clean_title):
+    """സെർച്ച് എളുപ്പമാക്കാൻ 'The', 'A' പോലുള്ളവ ഒഴിവാക്കി പ്രധാന വാക്ക് എടുക്കുന്നു"""
+    words = clean_title.split()
+    if len(words) > 1 and words[0].lower() in ["the", "a", "an"]:
+        return " ".join(words[1:3])
+    return " ".join(words[:2]) if words else clean_title
 
 def get_caption_and_buttons(movie_title, entries):
     movies_list_text = "\n".join(entries)
@@ -42,21 +50,20 @@ def get_caption_and_buttons(movie_title, entries):
         f"📌 <b>Pin For Instant Updates</b>\n"
         f"       😎 <b>Check it Out</b> 😎\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <i>താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ഫയലുകൾ എടുക്കുക 👇</i>"
+        f"📥 <i>സിനിമ ലഭിക്കാൻ താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ബോട്ടിൽ <b>START</b> അമർത്തുക 👇</i>"
     )
     
     bot_username = temp.U_NAME
-    # ലിങ്കിൽ സ്പേസുകൾക്ക് പകരം '+' അല്ലെങ്കിൽ സേഫ് ഫോർമാറ്റ് നൽകുന്നു
-    safe_query = re.sub(r"[^a-zA-Z0-9 ]", "", movie_title).strip()
-    encoded_query = urllib.parse.quote_plus(safe_query)
+    search_term = get_search_keyword(movie_title)
+    encoded_query = urllib.parse.quote_plus(search_term)
     deep_link = f"https://t.me/{bot_username}?start={encoded_query}"
     
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("⚡ Instant Files (ഇവിടെ കാണുക)", switch_inline_query_current_chat=safe_query)
+            InlineKeyboardButton("📥 Get Movie Files (DM)", url=deep_link)
         ],
         [
-            InlineKeyboardButton("🤖 Open in Bot (DM)", url=deep_link)
+            InlineKeyboardButton("⚡ Search in Chat", switch_inline_query_current_chat=search_term)
         ]
     ])
     
@@ -74,10 +81,10 @@ async def auto_post_to_group(client, message):
     file_name = media.file_name or "New Movie"
     base_title = clean_movie_title(file_name)
     
-    safe_query = re.sub(r"[^a-zA-Z0-9 ]", "", base_title).strip()
-    search_query = urllib.parse.quote_plus(safe_query)
+    search_term = get_search_keyword(base_title)
     bot_username = temp.U_NAME
-    movie_link = f"https://t.me/{bot_username}?start={search_query}"
+    encoded_query = urllib.parse.quote_plus(search_term)
+    movie_link = f"https://t.me/{bot_username}?start={encoded_query}"
     
     line_entry = f"🎬 <a href=\"{movie_link}\">{file_name}</a>"
 
