@@ -8,7 +8,6 @@ from info import CHANNELS, PICS, ADMINS
 from database.ia_filterdb import save_file
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1001452215783"))
-DB_CHANNEL_ID = -1003799495012
 
 POST_CACHE = {}
 LOCK = asyncio.Lock()
@@ -46,63 +45,27 @@ def get_caption_and_buttons(movie_title, entries):
     
     return caption, buttons
 
-# ഫയൽ സുരക്ഷിതമായി MongoDB-യിൽ സേവ് ചെയ്യുന്ന ഫംഗ്ഷൻ
-async def save_media_to_db(message):
-    media = getattr(message, 'document', None) or getattr(message, 'video', None) or getattr(message, 'audio', None)
-    if not media:
-        return False, "No media"
-
-    # EvaMaria-യ്ക്ക് ആവശ്യമായ ഫീൽഡുകൾ
-    if not hasattr(media, 'file_type'):
-        if message.video:
-            setattr(media, 'file_type', 'video')
-        elif message.audio:
-            setattr(media, 'file_type', 'audio')
-        else:
-            setattr(media, 'file_type', 'document')
-
-    if not hasattr(media, 'caption'):
-        setattr(media, 'caption', message.caption)
-
-    try:
-        res = await save_file(media)
-        if isinstance(res, tuple):
-            saved, code = res
-            if saved:
-                return True, "Saved"
-            elif code == 0:
-                return True, "Already in database"
-            else:
-                return False, f"Validation code {code}"
-        return bool(res), "Done"
-    except Exception as e:
-        return False, str(e)
-
-
-# 1. ബോട്ടിലേക്ക് നേരിട്ട് ഫോർവേഡ് ചെയ്യുന്ന ഫയലുകൾ സേവ് ചെയ്യാൻ
-@Client.on_message(filters.private & (filters.document | filters.video))
-async def save_direct_files(client, message):
-    saved, msg = await save_media_to_db(message)
-    media = message.document or message.video
-    if saved:
-        await message.reply_text(f"✅ <b>ഡാറ്റാബേസിൽ സേവ് ചെയ്തു:</b>\n<code>{media.file_name}</code>", quote=True)
-    else:
-        await message.reply_text(f"⚠️ <b>സേവ് എറർ:</b> <code>{msg}</code>", quote=True)
-
-
-# 2. ചാനലിൽ പുതിയ ഫയലുകൾ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റും ഒപ്പം MongoDB സേവും
+# 1. ചാനലിൽ പുതിയ ഫയലുകൾ വരുമ്പോൾ ഓട്ടോ പോസ്റ്റും ഒപ്പം MongoDB സേവും
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
-    await save_media_to_db(message)
+    media = message.document or message.video
+    if not media:
+        return
+
+    # ia_filterdb-യ്ക്ക് ആവശ്യമായ file_type സുരക്ഷിതമായി നൽകുന്നു
+    try:
+        if not hasattr(media, 'file_type'):
+            media.file_type = "video" if message.video else "document"
+        if not hasattr(media, 'caption'):
+            media.caption = None
+        await save_file(media)
+    except Exception as err:
+        print(f"Database Save Error: {err}")
 
     if not UPDATE_CHANNEL:
         return
 
-    media = message.document or message.video
-    if not media:
-        return
-
-    file_name = media.file_name or "New Movie"
+    file_name = getattr(media, 'file_name', 'New Movie')
     base_title = get_pure_title(file_name)
     line_entry = f"🎬 {file_name}"
 
