@@ -462,12 +462,13 @@ async def save_template(client, message):
     await sts.edit(f"Successfully changed template for {title} to\n\n{template}")
 
 # --- PM DIRECT FILE SENDER & LOGGER ---
-@Client.on_message(filters.text & filters.private & filters.incoming)
+@Client.on_message(filters.text & filters.private & filters.incoming, group=-1)
 async def auto_send_pm_movie(client, message):
     text = (message.text or "").strip()
     print(f"[DEBUG] Received PM Text: {text} from {message.from_user.id}")
 
     if text.startswith(("/", "!", "#")):
+        message.continue_propagation()
         return
 
     if len(text) < 2:
