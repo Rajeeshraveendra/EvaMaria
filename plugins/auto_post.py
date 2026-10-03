@@ -4,6 +4,7 @@ import asyncio
 import os
 import random
 from pyrogram import Client, filters, enums
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from info import CHANNELS, PICS
 from utils import temp
 
@@ -13,11 +14,10 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def clean_movie_title(filename):
-    """ഫയൽ നെയിമിൽ നിന്ന് സിനിമയുടെ പ്രധാന പേര് മാത്രം കൃത്യമായി വേർതിരിച്ചെടുക്കുന്നു"""
+    """Filename-il ninnu movie name maathram edukkunnu"""
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
     name = name.replace(".", " ").replace("_", " ").strip()
     
-    # ക്വാളിറ്റികളും ഭാഷകളും മാറ്റി പേര് മാത്രം കണ്ടെത്തുന്നു
     tags = ["hindi", "tamil", "telugu", "malayalam", "kannada", "english", "hdrip", "web-dl", "hevc", "720p", "1080p", "480p", "mkv", "mp4"]
     words = name.split()
     clean_words = []
@@ -28,6 +28,34 @@ def clean_movie_title(filename):
     
     final_title = " ".join(clean_words).strip().title()
     return final_title if final_title else name[:15]
+
+def get_caption_and_buttons(movie_title, entries):
+    """Post caption-um inline buttons-um tayyaaraakkunnu"""
+    movies_list_text = "\n".join(entries)
+    caption = (
+        f"<b>Today's Movies :</b>\n"
+        f"{movies_list_text}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"          <b>Released ✅</b>\n"
+        f"📌 <b>Pin For Instant Updates</b>\n"
+        f"       😎 <b>Check it Out</b> 😎\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
+    )
+    
+    # Direct DM delivery button & Start link button
+    search_query = urllib.parse.quote(movie_title)
+    bot_username = temp.U_NAME
+    deep_link = f"https://t.me/{bot_username}?start={search_query}"
+    
+    # Callback query data length kuravaayirikkan safe aayi slice cheyyunnu
+    cb_data = f"getfile#{movie_title[:40]}"
+    
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📥 Get Movie Files (DM)", callback_data=cb_data)],
+        [InlineKeyboardButton("🤖 Open in Bot", url=deep_link)]
+    ])
+    
+    return caption, buttons
 
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
 async def auto_post_to_group(client, message):
@@ -48,67 +76,89 @@ async def auto_post_to_group(client, message):
     line_entry = f"🎬 <a href=\"{movie_link}\">{file_name}</a>"
 
     async with LOCK:
-        # നിലവിൽ ഇതേ സിനിമയ്ക്ക് പോസ്റ്റ് ഉണ്ടെങ്കിൽ ആ പോസ്റ്റിലേക്ക് എഡിറ്റ് ചെയ്ത് ചേർക്കുന്നു
+        # Existing movie post update cheyyunnu
         if base_title in POST_CACHE:
             data = POST_CACHE[base_title]
             if line_entry not in data["entries"]:
                 data["entries"].append(line_entry)
+                caption, buttons = get_caption_and_buttons(base_title, data["entries"])
                 
-                movies_list_text = "\n".join(data["entries"])
-                updated_caption = (
-                    f"<b>Today's Movies :</b>\n"
-                    f"{movies_list_text}\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"          <b>Released ✅</b>\n"
-                    f"📌 <b>Pin For Instant Updates</b>\n"
-                    f"       😎 <b>Check it Out</b> 😎\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
-                )
                 try:
                     await client.edit_message_caption(
                         chat_id=UPDATE_CHANNEL,
                         message_id=data["msg_id"],
-                        caption=updated_caption,
+                        caption=caption,
+                        reply_markup=buttons,
                         parse_mode=enums.ParseMode.HTML
                     )
                 except Exception as e:
                     print(f"Edit Caption Error: {e}")
             return
 
-        # പുതിയ പോസ്റ്റിനായുള്ള കാപ്ഷൻ
-        initial_caption = (
-            f"<b>Today's Movies :</b>\n"
-            f"{line_entry}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"          <b>Released ✅</b>\n"
-            f"📌 <b>Pin For Instant Updates</b>\n"
-            f"       😎 <b>Check it Out</b> 😎\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
-        )
+        # Puthiya post ayakkunnu
+        entries = [line_entry]
+        caption, buttons = get_caption_and_buttons(base_title, entries)
 
         sent_msg = None
-        # മറ്റുള്ളവരുടെ തമ്പ്‌നെയിൽ ഒഴിവാക്കി നിങ്ങളുടെ ബോട്ടിന്റെ സ്വന്തം ഇമേജ് (PICS) നൽകുന്നു
         if PICS:
             try:
                 sent_msg = await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
                     photo=random.choice(PICS),
-                    caption=initial_caption,
+                    caption=caption,
+                    reply_markup=buttons,
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as err:
                 print(f"Custom Poster error: {err}")
 
-        # ഇമേജ് വന്നില്ലെങ്കിൽ സാധാരണ ടെക്സ്റ്റ് ആയി അയക്കുന്നു
         if not sent_msg:
             sent_msg = await client.send_message(
                 chat_id=UPDATE_CHANNEL,
-                text=initial_caption,
+                text=caption,
+                reply_markup=buttons,
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
 
         POST_CACHE[base_title] = {
             "msg_id": sent_msg.id,
-            "entries": [line_entry]
+            "entries": entries
         }
+
+
+# Member group-il "Get Movie Files" button click cheyyumbol ulla action
+@Client.on_callback_query(filters.regex(r"^getfile#"))
+async def send_files_to_user_dm(client, query: CallbackQuery):
+    movie_name = query.data.split("#", 1)[1]
+    user_id = query.from_user.id
+    bot_username = temp.U_NAME
+
+    # Database query search EvaMaria logic vazhi
+    from database.ia_filterdb import get_search_results
+    
+    files, total = await get_search_results(chat_id=user_id, query=movie_name, max_results=10)
+    
+    if not files:
+        return await query.answer("Kshamikkuka, ee cinimayude files ippol labhyamalla!", show_alert=True)
+
+    try:
+        # User-nte private chat-ilekku files ayakkunnu
+        await client.send_message(
+            chat_id=user_id,
+            text=f"🎬 <b>{movie_name}</b> - Files thaazhe nalkunnu:"
+        )
+        for file in files:
+            await client.send_cached_media(
+                chat_id=user_id,
+                file_id=file.file_id,
+                caption=f"📁 <code>{file.file_name}</code>"
+            )
+        await query.answer("✅ Files ningalude Inbox (PM)-lekku ayachittundu! Check cheyyuka.", show_alert=True)
+    except Exception as e:
+        # User munpu bot start cheythittillengil alert kaanikkunnu
+        start_url = f"https://t.me/{bot_username}?start={urllib.parse.quote(movie_name)}"
+        await query.answer(
+            "⚠️ Ningalude PM-lekku message ayakkan kazhiyunilla!\n\nAadyam thazheyulla 'Open in Bot' click cheythu START adikkuka.",
+            show_alert=True
+        )
