@@ -16,18 +16,25 @@ POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 def extract_movie_info(filename):
+    # Bracket contents, Extension എന്നിവ ഒഴിവാക്കുന്നു
     name = re.sub(r"\[.*?\]|\(.*?\)", "", filename)
-    name = name.replace(".", " ").replace("_", " ").strip()
+    name = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", name)
+    
+    # ചാനൽ ടാഗുകൾ ഒഴിവാക്കുന്നു (ഉദാ: @WMR_, @ChannelName)
+    name = re.sub(r"@\w+[_]?", "", name)
+    
+    # സ്പെഷ്യൽ ക്യാരക്ടറുകൾ മാറ്റി സ്പേസ് ആക്കുന്നു
+    name = name.replace(".", " ").replace("_", " ").replace("-", " ").strip()
 
-    # Year kandupidikkunnu
+    # വർഷം കണ്ടെത്തുന്നു (1900 - 2099)
     year_match = re.search(r"\b(19\d\d|20\d\d)\b", name)
     year = year_match.group(1) if year_match else None
 
-    # Quality, rip tags cut cheyyunnu
+    # അനാവശ്യ ടാഗുകൾ
     tags = [
-        "hindi", "tamil", "telugu", "malayalam", "kannada", "english",
-        "hdrip", "web-dl", "webrip", "hevc", "720p", "1080p", "480p", "2160p",
-        "mkv", "mp4", "aac", "x264", "x265", "dvdrip", "esub", "sps", "m max"
+        "hindi", "tamil", "telugu", "malayalam", "kannada", "english", "bengali",
+        "hdrip", "web-dl", "webrip", "hevc", "720p", "1080p", "480p", "2160p", "dvdrip",
+        "aac", "x264", "x265", "esub", "sps", "mkv", "mp4", "wmr"
     ]
     
     clean_words = []
@@ -35,13 +42,13 @@ def extract_movie_info(filename):
         w_lower = word.lower()
         if year and word == year:
             break
-        if any(w_lower.startswith(t) for t in tags):
+        if any(w_lower == t or w_lower.startswith(t) for t in tags):
             break
         clean_words.append(word)
 
     clean_title = " ".join(clean_words).strip()
     if not clean_title:
-        clean_title = filename.split(".")[0][:20]
+        clean_title = name.split()[0] if name.split() else "Movie"
 
     return clean_title, year
 
@@ -49,18 +56,19 @@ async def get_imdb_details(movie_name, year=None):
     loop = asyncio.get_event_loop()
     def fetch():
         try:
-            query = f"{movie_name} {year}" if year else movie_name
-            url = f"https://www.omdbapi.com/?t={urllib.parse.quote(movie_name)}&y={year or ''}&apikey=b6636080"
+            # 1. വർഷം ഉൾപ്പെടെ ആദ്യം തിരയുന്നു
+            q = urllib.parse.quote(movie_name)
+            url = f"https://www.omdbapi.com/?t={q}&y={year or ''}&apikey=b6636080"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            response = urllib.request.urlopen(req, timeout=7)
-            data = json.loads(response.read().decode())
+            res = urllib.request.urlopen(req, timeout=6)
+            data = json.loads(res.read().decode())
             
-            # Year match aayilla enkil veruthe peru vachu search cheyyunnu
+            # 2. കിട്ടിയില്ലെങ്കിൽ വർഷം ഒഴിവാക്കി പേര് മാത്രം വെച്ച് തിരയുന്നു
             if data.get("Response") != "True":
-                url_fallback = f"https://www.omdbapi.com/?t={urllib.parse.quote(movie_name)}&apikey=b6636080"
+                url_fallback = f"https://www.omdbapi.com/?t={q}&apikey=b6636080"
                 req_fallback = urllib.request.Request(url_fallback, headers={'User-Agent': 'Mozilla/5.0'})
-                response_fallback = urllib.request.urlopen(req_fallback, timeout=7)
-                data = json.loads(response_fallback.read().decode())
+                res_fallback = urllib.request.urlopen(req_fallback, timeout=6)
+                data = json.loads(res_fallback.read().decode())
 
             if data.get("Response") == "True":
                 title = data.get("Title", movie_name)
@@ -80,7 +88,7 @@ async def get_imdb_details(movie_name, year=None):
                 }
             return None
         except Exception as e:
-            print(f"IMDb Error: {e}")
+            print(f"IMDb API Error: {e}")
             return None
 
     return await loop.run_in_executor(None, fetch)
@@ -190,7 +198,6 @@ async def auto_post_to_group(client, message):
         caption, buttons = get_caption_and_buttons(base_title, entries, imdb_info)
 
         sent_msg = None
-        # IMDb-il poster undo enkil athu edukum, allenkil PICS-il ninnu
         photo_url = imdb_info.get("poster") if (imdb_info and imdb_info.get("poster")) else (random.choice(PICS) if PICS else None)
 
         if photo_url:
