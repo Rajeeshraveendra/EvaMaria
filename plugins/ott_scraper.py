@@ -20,11 +20,16 @@ HEADERS = {
     'Accept-Language': 'en-US,en;q=0.9',
 }
 
-def is_night_time_ist():
-    """രാത്രി 10 PM മുതൽ രാവിലെ 7 AM വരെ സൈലന്റ് മോഡ് ആയിരിക്കും"""
-    ist = timezone(timedelta(hours=5, minutes=30))
-    current_hour = datetime.now(ist).hour
-    return current_hour >= 22 or current_hour < 7
+def is_sleep_time():
+    """UAE (UTC+4) & India (UTC+5:30) samayangalil 10 PM to 7 AM sleep mode aakkunnu"""
+    now_utc = datetime.now(timezone.utc)
+    gst_hour = (now_utc + timedelta(hours=4)).hour
+    ist_hour = (now_utc + timedelta(hours=5, minutes=30)).hour
+
+    # Randil ethenkilum 10 PM kazhiyukayo 7 AM aakathirikkayo cheythal sleep mode
+    if (gst_hour >= 22 or gst_hour < 7) or (ist_hour >= 22 or ist_hour < 7):
+        return True
+    return False
 
 def clean_movie_title(raw_title):
     year_match = re.search(r'\b(20\d\d|19\d\d)\b', raw_title)
@@ -153,16 +158,19 @@ def fetch_movie_story(page_url):
         print(f"[Scraper] Detail Error: {e}")
         return None
 
-async def run_scraper_process(client: Client, status_msg=None):
+async def run_scraper_process(client: Client, status_msg=None, force=False):
+    if not force and is_sleep_time():
+        print("[Movierulz Scraper] Sleep mode active. Skipping automatic post.")
+        return
+
     loop = asyncio.get_event_loop()
     movies = await loop.run_in_executor(None, fetch_movierulz_movies)
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല.")
+            await status_msg.edit_text("❌ Cinemakal onnum kandethaanayilla.")
         return
 
-    silent = is_night_time_ist()
     posted_count = 0
     for movie in reversed(movies):
         link = movie["page_url"]
@@ -207,7 +215,7 @@ async def run_scraper_process(client: Client, status_msg=None):
                     caption=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
-                    disable_notification=silent
+                    disable_notification=True
                 )
                 try:
                     os.remove(downloaded_file)
@@ -220,7 +228,7 @@ async def run_scraper_process(client: Client, status_msg=None):
                     caption=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
-                    disable_notification=silent
+                    disable_notification=True
                 )
             posted_count += 1
             POSTED_LINKS.add(link)
@@ -229,13 +237,13 @@ async def run_scraper_process(client: Client, status_msg=None):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ HD പോസ്റ്റുകൾ അയച്ചു. (Silent Mode: {silent})")
+        await status_msg.edit_text(f"✅ Poorthiyaayi! {posted_count} postukal ayachu.")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
     POSTED_LINKS.clear()
-    msg = await message.reply_text("🔍 പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
-    await run_scraper_process(client, msg)
+    msg = await message.reply_text("🔍 Manual scrape run cheyyunnu...")
+    await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
     await asyncio.sleep(30)
