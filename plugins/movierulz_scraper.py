@@ -36,7 +36,10 @@ def clean_movie_title(raw_title):
     title = re.sub(r"\s+", " ", title).strip()
     return title, year
 
-def get_highres_poster_url(clean_title, year=""):
+def get_movie_meta_and_trailer(clean_title, year=""):
+    """TMDB API വഴി പോസ്റ്ററും ഒഫീഷ്യൽ യൂട്യൂബ് ട്രെയിലറും എടുക്കുന്നു"""
+    poster_url = None
+    trailer_url = None
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
@@ -45,25 +48,46 @@ def get_highres_poster_url(clean_title, year=""):
         res = requests.get(url, params=params, timeout=8)
         if res.status_code == 200:
             results = res.json().get("results", [])
-            if results and results[0].get("poster_path"):
-                return f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
-    except Exception as e:
-        print(f"[TMDB Error]: {e}")
+            if results:
+                movie_id = results[0].get("id")
+                if results[0].get("poster_path"):
+                    poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
 
-    try:
-        query = f"{clean_title} {year} malayalam movie poster hd"
-        search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
-        r = requests.get(search_url, headers=HEADERS, timeout=8)
-        if r.status_code == 200:
-            links = re.findall(r'img_url=(https?[^&]+)', r.text)
-            for link in links:
-                unquoted = urllib.parse.unquote(link)
-                if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
-                    return unquoted
+                # ഒഫീഷ്യൽ യൂട്യൂബ് ട്രെയിലർ API
+                if movie_id:
+                    v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
+                    v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=8)
+                    if v_res.status_code == 200:
+                        videos = v_res.json().get("results", [])
+                        for v in videos:
+                            if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                                trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
+                                break
     except Exception as e:
-        print(f"[Web Image Error]: {e}")
+        print(f"[TMDB Details Error]: {e}")
 
-    return None
+    # യൂട്യൂബ് ഡയറക്റ്റ് സെർച്ച് ഫാൾബാക്ക്
+    if not trailer_url:
+        search_query = urllib.parse.quote(f"{clean_title} {year} malayalam movie official trailer")
+        trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
+
+    # പോസ്റ്റർ ഇമേജ് ഫാൾബാക്ക്
+    if not poster_url:
+        try:
+            query = f"{clean_title} {year} malayalam movie poster hd"
+            search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
+            r = requests.get(search_url, headers=HEADERS, timeout=8)
+            if r.status_code == 200:
+                links = re.findall(r'img_url=(https?[^&]+)', r.text)
+                for link in links:
+                    unquoted = urllib.parse.unquote(link)
+                    if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
+                        poster_url = unquoted
+                        break
+        except Exception as e:
+            print(f"[Poster Search Error]: {e}")
+
+    return poster_url, trailer_url
 
 def download_image_clean(url, filepath):
     try:
@@ -143,7 +167,7 @@ async def run_scraper_process(client: Client, status_msg=None):
 
         clean_title, year = clean_movie_title(movie["title"])
 
-        hd_poster_url = await loop.run_in_executor(None, get_highres_poster_url, clean_title, year)
+        hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year)
         final_img_url = hd_poster_url or movie.get("poster")
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
@@ -162,6 +186,7 @@ async def run_scraper_process(client: Client, status_msg=None):
 
         buttons = [
             [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=clean_title)],
+            [InlineKeyboardButton("🎬 Watch Official Trailer 🍿", url=trailer_url)],
             [InlineKeyboardButton("👥 Join Discussion Group 👥", url=GROUP_LINK)]
         ]
         button_markup = InlineKeyboardMarkup(buttons)
@@ -203,7 +228,7 @@ async def run_scraper_process(client: Client, status_msg=None):
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
     POSTED_LINKS.clear()
-    msg = await message.reply_text("🔍 ഹൈ-റെസല്യൂഷൻ പോസ്റ്ററുകൾ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 ഹൈ-റെസല്യൂഷൻ പോസ്റ്ററുകളും ട്രെയിലറും തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_scraper_process(client, msg)
 
 async def auto_loop(client: Client):
