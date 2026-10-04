@@ -12,6 +12,7 @@ GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 GROUP_NAME = "RRK Movies Group"
 
 POSTED_OTT_MOVIES = set()
+TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -23,20 +24,54 @@ def clean_movie_title(raw_title):
     title = re.sub(r"[^a-zA-Z0-9\s]", " ", title)
     return re.sub(r"\s+", " ", title).strip()
 
-def get_highres_poster_url(clean_title):
+def get_ott_poster_and_trailer(clean_title):
+    """TMDB വഴി OTT സിനിമയുടെ ഹൈ-റെസ് പോസ്റ്ററും ട്രെയിലറും എടുക്കുന്നു"""
+    poster_url = None
+    trailer_url = None
+
     try:
-        query = f"{clean_title} malayalam movie poster hd"
-        search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
-        r = requests.get(search_url, headers=HEADERS, timeout=8)
-        if r.status_code == 200:
-            links = re.findall(r'img_url=(https?[^&]+)', r.text)
-            for link in links:
-                unquoted = urllib.parse.unquote(link)
-                if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
-                    return unquoted
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
+        res = requests.get(url, params=params, timeout=8)
+        if res.status_code == 200:
+            results = res.json().get("results", [])
+            if results:
+                movie_id = results[0].get("id")
+                if results[0].get("poster_path"):
+                    poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
+
+                if movie_id:
+                    v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
+                    v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=8)
+                    if v_res.status_code == 200:
+                        videos = v_res.json().get("results", [])
+                        for v in videos:
+                            if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                                trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
+                                break
     except Exception as e:
-        print(f"[OTT Poster Search Error]: {e}")
-    return None
+        print(f"[OTT TMDB Error]: {e}")
+
+    if not trailer_url:
+        search_query = urllib.parse.quote(f"{clean_title} malayalam movie official trailer")
+        trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
+
+    if not poster_url:
+        try:
+            query = f"{clean_title} malayalam movie poster hd"
+            search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
+            r = requests.get(search_url, headers=HEADERS, timeout=8)
+            if r.status_code == 200:
+                links = re.findall(r'img_url=(https?[^&]+)', r.text)
+                for link in links:
+                    unquoted = urllib.parse.unquote(link)
+                    if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
+                        poster_url = unquoted
+                        break
+        except Exception as e:
+            print(f"[OTT Poster Search Error]: {e}")
+
+    return poster_url, trailer_url
 
 def download_temp_image(url, filename):
     try:
@@ -50,7 +85,6 @@ def download_temp_image(url, filename):
     return None
 
 def fetch_live_ott_releases():
-    """Nowrunning മലയാളം OTT കലണ്ടർ ശേഖരിക്കുന്നു"""
     url = "https://www.nowrunning.com/malayalam-streaming-guide/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=12)
@@ -118,7 +152,7 @@ async def run_ott_scraper(client: Client, status_msg=None):
             continue
 
         clean_name = clean_movie_title(item['title'])
-        best_poster = await loop.run_in_executor(None, get_highres_poster_url, clean_name)
+        best_poster, trailer_url = await loop.run_in_executor(None, get_ott_poster_and_trailer, clean_name)
         final_poster = best_poster or item.get("poster")
 
         caption = (
@@ -135,6 +169,7 @@ async def run_ott_scraper(client: Client, status_msg=None):
 
         buttons = [
             [InlineKeyboardButton("🔍 Search Movie", switch_inline_query_current_chat=clean_name)],
+            [InlineKeyboardButton("🎬 Watch Official Trailer 🍿", url=trailer_url)],
             [InlineKeyboardButton("👥 Join Discussion Group 👥", url=GROUP_LINK)]
         ]
         button_markup = InlineKeyboardMarkup(buttons)
@@ -175,7 +210,7 @@ async def run_ott_scraper(client: Client, status_msg=None):
 @Client.on_message(filters.command("ott") & filters.private)
 async def manual_ott_cmd(client: Client, message):
     POSTED_OTT_MOVIES.clear()
-    msg = await message.reply_text("🔍 പുതിയ OTT റിലീസുകൾ പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 പുതിയ OTT റിലീസുകളും ട്രെയിലറും പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_ott_scraper(client, msg)
 
 async def auto_ott_loop(client: Client):
@@ -185,7 +220,6 @@ async def auto_ott_loop(client: Client):
             await run_ott_scraper(client)
         except Exception as e:
             print(f"[OTT Loop Error]: {e}")
-        # ഓരോ 2 മണിക്കൂറിലും ഓട്ടോമാറ്റിക് ആയി ചെക്ക് ചെയ്യും
         await asyncio.sleep(7200)
 
 @Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-2)
