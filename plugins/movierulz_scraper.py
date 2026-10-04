@@ -9,27 +9,32 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 POSTED_LINKS = set()
 
-# TMDB പബ്ലിക് റീഡ്-കീ (ഹൈ-ക്വാളിറ്റി ഒഫീഷ്യൽ പോസ്റ്ററുകൾക്കായി)
 TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-def clean_title_for_search(raw_title):
-    # വർഷം പ്രത്യേകം തിരിച്ചറിയുന്നു (e.g. 2026)
+def clean_movie_title(raw_title):
     year_match = re.search(r'\b(20\d\d|19\d\d)\b', raw_title)
     year = year_match.group(1) if year_match else None
 
+    # അനാവശ്യ ടാഗുകൾ നീക്കം ചെയ്യുന്നു
     title = re.sub(r"\(.*?\)|\[.*?\]", "", raw_title)
-    tags = ["malayalam", "full movie", "watch online", "free", "download", "hdrip", "dvdrip", "hd", "telugu", "tamil", "kannada", "hindi"]
-    for t in tags:
-        title = re.sub(rf"\b{t}\b", "", title, flags=re.IGNORECASE)
-    cleaned = title.strip()
-    return cleaned, year
+    tags = [
+        "malayalam", "tamil", "telugu", "hindi", "kannada", "english",
+        "full movie", "watch online", "free", "download", "hdrip", "dvdrip", 
+        "hd", "hq", "predvd", "pre-dvd", "proper", "true", "web-dl", "esub"
+    ]
+    for tag in tags:
+        title = re.sub(rf"\b{tag}\b", "", title, flags=re.IGNORECASE)
 
-def get_tmdb_hd_poster(movie_title, year=None):
-    """TMDB-യിൽ നിന്ന് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു"""
+    title = re.sub(r"[^a-zA-Z0-9\s]", " ", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    return title, year
+
+def get_tmdb_original_poster(movie_title, year=None):
+    """TMDB-യിൽ നിന്ന് ഒറിജിനൽ 4K/HD പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു"""
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {
@@ -40,15 +45,26 @@ def get_tmdb_hd_poster(movie_title, year=None):
         if year:
             params["primary_release_year"] = year
 
-        res = requests.get(url, params=params, timeout=8)
+        res = requests.get(url, params=params, timeout=10)
         if res.status_code == 200:
             data = res.json()
             results = data.get("results", [])
             if results and results[0].get("poster_path"):
-                # original ക്വാളിറ്റിയിൽ നേരിട്ടുള്ള ലിങ്ക്
                 return f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
     except Exception as e:
         print(f"[TMDB] Fetch error: {e}")
+    return None
+
+def download_image_locally(img_url, filename="poster.jpg"):
+    """ഇമേജ് ഹൈ-ക്വാളിറ്റിയിൽ ഡൗൺലോഡ് ചെയ്യുന്നു"""
+    try:
+        res = requests.get(img_url, headers=HEADERS, timeout=15)
+        if res.status_code == 200:
+            with open(filename, 'wb') as f:
+                f.write(res.content)
+            return filename
+    except Exception as e:
+        print(f"[Image Download] Error: {e}")
     return None
 
 def fetch_movierulz_movies():
@@ -71,13 +87,15 @@ def fetch_movierulz_movies():
 
             page_link = a_tag['href']
             img_tag = item.find('img')
-            poster = img_tag.get('src') if img_tag else None
+            raw_poster = img_tag.get('src') if img_tag else None
+            # വേർഡ്പ്രസ്സ് സൈസ് ടാഗുകൾ ഒഴിവാക്കുന്നു
+            clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster) if raw_poster else None
             title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
 
             movie_list.append({
                 "page_url": page_link,
                 "title": title.strip(),
-                "poster": poster
+                "poster": clean_poster
             })
         return movie_list
     except Exception as e:
@@ -94,11 +112,8 @@ def fetch_movie_story(page_url):
         meta_img = soup.find('meta', property='og:image')
         poster_url = meta_img['content'] if (meta_img and meta_img.get('content')) else None
 
-        if not poster_url:
-            entry_div = soup.find('div', class_='entry-content') or soup
-            img_elem = entry_div.find('img')
-            if img_elem and img_elem.get('src'):
-                poster_url = img_elem['src']
+        if poster_url:
+            poster_url = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', poster_url)
 
         story_text = ""
         for p in soup.find_all('p'):
@@ -118,7 +133,7 @@ async def run_scraper_process(client: Client, status_msg=None):
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല അല്ലെങ്കിൽ സൈറ്റ് തടസ്സപ്പെട്ടു.")
+            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല.")
         return
 
     posted_count = 0
@@ -127,15 +142,14 @@ async def run_scraper_process(client: Client, status_msg=None):
         if link in POSTED_LINKS:
             continue
 
-        search_query, year = clean_title_for_search(movie["title"])
+        clean_title, year = clean_movie_title(movie["title"])
 
-        # 1. ആദ്യം TMDB-യിൽ നിന്ന് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു
-        tmdb_poster = await loop.run_in_executor(None, get_tmdb_hd_poster, search_query, year)
+        # 1. TMDB ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ
+        tmdb_poster = await loop.run_in_executor(None, get_tmdb_original_poster, clean_title, year)
 
-        # 2. Movierulz-ൽ നിന്നുള്ള കഥയും ബാക്കപ്പ് പോസ്റ്ററും
+        # 2. ബാക്കപ്പ് വിവരങ്ങൾ
         story, fallback_poster = await loop.run_in_executor(None, fetch_movie_story, link)
-
-        final_poster = tmdb_poster or fallback_poster or movie.get("poster")
+        final_poster_url = tmdb_poster or fallback_poster or movie.get("poster")
 
         caption = (
             f"🎬 <b>{movie['title']}</b>\n\n"
@@ -150,18 +164,27 @@ async def run_scraper_process(client: Client, status_msg=None):
         )
 
         button = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=search_query)]
+            [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=clean_title)]
         ])
 
+        # ഇമേജ് ലോക്കലായി ഡൗൺലോഡ് ചെയ്ത് ക്വാളിറ്റി നഷ്ടപ്പെടാതെ നേരിട്ട് അപ്‌ലോഡ് ചെയ്യുന്നു
+        local_img = None
+        if final_poster_url:
+            local_img = await loop.run_in_executor(None, download_image_locally, final_poster_url, f"temp_{posted_count}.jpg")
+
         try:
-            if final_poster:
+            if local_img and os.path.exists(local_img):
                 await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=final_poster,
+                    photo=local_img,
                     caption=caption,
                     reply_markup=button,
                     parse_mode=enums.ParseMode.HTML
                 )
+                try:
+                    os.remove(local_img)
+                except:
+                    pass
             else:
                 await client.send_message(
                     chat_id=UPDATE_CHANNEL,
