@@ -3,15 +3,15 @@ import os
 import re
 import requests
 from bs4 import BeautifulSoup
-from imdb import Cinemagoer
+import imdb
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 POSTED_LINKS = set()
 
-# Cinemagoer (IMDb) ഒറിജിനൽ HD പോസ്റ്റർ ലഭ്യമാക്കാൻ
-ia = Cinemagoer()
+# IMDbpy ഒറിജിനൽ ഒബ്ജക്റ്റ്
+ia = imdb.IMDb()
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -45,10 +45,8 @@ def get_imdb_hd_poster(title, year=None):
         if results:
             movie = results[0]
             ia.update(movie, ['main'])
-            # 'full-size cover url' ഒറിജിനൽ HD ക്വാളിറ്റി നൽകുന്നു
             cover = movie.get('full-size cover url') or movie.get('cover url')
             if cover:
-                # ആമസോൺ/IMDb ഇമേജ് ലിങ്കിലെ ക്രോപ്പിംഗ് ടാഗുകൾ ഒഴിവാക്കി അൺകംപ്രസ്സ്ഡ് ഫയലാക്കുന്നു
                 hd_url = re.sub(r'UX\d+.*?\.', '', cover)
                 hd_url = re.sub(r'UY\d+.*?\.', '', hd_url)
                 hd_url = re.sub(r'CR\d+.*?\.', '', hd_url)
@@ -144,10 +142,7 @@ async def run_scraper_process(client: Client, status_msg=None):
 
         clean_title, year = clean_movie_title(movie["title"])
 
-        # 1. IMDb വഴി ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ
         best_poster = await loop.run_in_executor(None, get_imdb_hd_poster, clean_title, year)
-
-        # 2. ബാക്കപ്പായി കഥയും Movierulz ചിത്രവും
         story, fallback_poster = await loop.run_in_executor(None, fetch_movie_story, link)
         final_poster_url = best_poster or fallback_poster or movie.get("poster")
 
@@ -198,7 +193,7 @@ async def run_scraper_process(client: Client, status_msg=None):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ IMDb HD പോസ്റ്റുകൾ അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ HD പോസ്റ്റുകൾ അയച്ചു.")
 
 @Client.on_message(filters.command("scrape"))
 async def manual_scrape_cmd(client: Client, message):
