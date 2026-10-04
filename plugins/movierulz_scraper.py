@@ -8,8 +8,10 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
-POSTED_LINKS = set()
+GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
+GROUP_NAME = "RRK Movies Group"
 
+POSTED_LINKS = set()
 TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
 
 HEADERS = {
@@ -35,12 +37,11 @@ def clean_movie_title(raw_title):
     return title, year
 
 def get_highres_poster_url(clean_title, year=""):
-    """1. TMDB ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ പരിശോധിക്കുന്നു"""
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
         if year:
-            params["primary_release_year"] = year
+            params["primary_release_date_year"] = year
         res = requests.get(url, params=params, timeout=8)
         if res.status_code == 200:
             results = res.json().get("results", [])
@@ -49,11 +50,10 @@ def get_highres_poster_url(clean_title, year=""):
     except Exception as e:
         print(f"[TMDB Error]: {e}")
 
-    """2. TMDB-യിൽ ഇല്ലെങ്കിൽ യാൻഡെക്സ്/വെബ് വഴി ഒറിജിനൽ ഫസ്റ്റ് ലുക്ക് വലിയ പോസ്റ്റർ കണ്ടെത്തുന്നു"""
     try:
         query = f"{clean_title} {year} malayalam movie poster hd"
         search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
-        r = requests.get(search_url, headers=HEADERS, timeout=10)
+        r = requests.get(search_url, headers=HEADERS, timeout=8)
         if r.status_code == 200:
             links = re.findall(r'img_url=(https?[^&]+)', r.text)
             for link in links:
@@ -67,7 +67,7 @@ def get_highres_poster_url(clean_title, year=""):
 
 def download_image_clean(url, filepath):
     try:
-        res = requests.get(url, headers=HEADERS, timeout=15)
+        res = requests.get(url, headers=HEADERS, timeout=12)
         if res.status_code == 200 and len(res.content) > 30000:
             with open(filepath, 'wb') as f:
                 f.write(res.content)
@@ -143,7 +143,6 @@ async def run_scraper_process(client: Client, status_msg=None):
 
         clean_title, year = clean_movie_title(movie["title"])
 
-        # ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു
         hd_poster_url = await loop.run_in_executor(None, get_highres_poster_url, clean_title, year)
         final_img_url = hd_poster_url or movie.get("poster")
         story = await loop.run_in_executor(None, fetch_movie_story, link)
@@ -157,12 +156,15 @@ async def run_scraper_process(client: Client, status_msg=None):
         caption += (
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📌 <b>New Malayalam Release Added</b> ✅\n"
+            f"💬 <b>Discussion Group :</b> <a href='{GROUP_LINK}'>{GROUP_NAME}</a>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
 
-        button = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=clean_title)]
-        ])
+        buttons = [
+            [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=clean_title)],
+            [InlineKeyboardButton("👥 Join Discussion Group 👥", url=GROUP_LINK)]
+        ]
+        button_markup = InlineKeyboardMarkup(buttons)
 
         downloaded_file = None
         if final_img_url:
@@ -174,7 +176,7 @@ async def run_scraper_process(client: Client, status_msg=None):
                     chat_id=UPDATE_CHANNEL,
                     photo=downloaded_file,
                     caption=caption,
-                    reply_markup=button,
+                    reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML
                 )
                 try:
@@ -186,7 +188,7 @@ async def run_scraper_process(client: Client, status_msg=None):
                     chat_id=UPDATE_CHANNEL,
                     photo=final_img_url,
                     caption=caption,
-                    reply_markup=button,
+                    reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML
                 )
             posted_count += 1
@@ -196,10 +198,11 @@ async def run_scraper_process(client: Client, status_msg=None):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ ഒറിജിനൽ HD പോസ്റ്റുകൾ ചാനലിലേക്ക് അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ HD പോസ്റ്റുകൾ അയച്ചു.")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
+    POSTED_LINKS.clear()
     msg = await message.reply_text("🔍 ഹൈ-റെസല്യൂഷൻ പോസ്റ്ററുകൾ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_scraper_process(client, msg)
 
@@ -212,8 +215,7 @@ async def auto_loop(client: Client):
             print(f"[Scraper] Loop Error: {e}")
         await asyncio.sleep(1200)
 
-# ഇൻകമിംഗ് മെസ്സേജുകൾ ബോട്ടിൽ ലൂപ്പ് ആവാതിരിക്കാൻ ഫിൽട്ടർ ചേർത്തു
-@Client.on_message(filters.private & ~filters.command(["scrape", "start", "help"]), group=-1)
+@Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-1)
 async def start_loop_trigger(client: Client, message):
     if not hasattr(client, "_scraper_loop_started"):
         client._scraper_loop_started = True
