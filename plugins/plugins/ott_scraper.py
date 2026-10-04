@@ -1,81 +1,111 @@
 import asyncio
 import os
+import re
+import urllib.parse
 import requests
-from datetime import datetime, timedelta
+from bs4 import BeautifulSoup
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 POSTED_OTT_MOVIES = set()
 
-# TMDB ഒഫീഷ്യൽ റീഡ് API (ബ്ലോക്ക് ഇല്ലാതെ ലൈവ് ആയി ലഭിക്കാൻ)
-TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
-
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
 }
 
-def fetch_upcoming_malayalam_movies():
-    """TMDB API വഴി വരാനിരിക്കുന്ന മലയാളം റിലീസുകൾ ഫെച്ച് ചെയ്യുന്നു"""
+def clean_title(title_raw):
+    cleaned = re.sub(r"\(.*?\)|\[.*?\]", "", title_raw)
+    cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+def get_ott_hd_poster(movie_title):
+    """ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ OTT റിലീസ് പോസ്റ്റർ കണ്ടെത്തുന്നു"""
     try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        next_month = (datetime.now() + timedelta(days=60)).strftime("%Y-%m-%d")
-
-        url = "https://api.themoviedb.org/3/discover/movie"
-        params = {
-            "api_key": TMDB_API_KEY,
-            "with_original_language": "ml",
-            "primary_release_date.gte": today,
-            "primary_release_date.lte": next_month,
-            "sort_by": "primary_release_date.asc",
-            "include_adult": "false"
-        }
-        res = requests.get(url, params=params, timeout=12)
-        if res.status_code == 200:
-            results = res.json().get("results", [])
-            # വരാനിരിക്കുന്ന മലയാളം സിനിമകൾ ഇല്ലെങ്കിൽ ഏറ്റവും പുതിയ റിലീസുകൾ എടുക്കുന്നു
-            if not results:
-                params["sort_by"] = "release_date.desc"
-                del params["primary_release_date.gte"]
-                del params["primary_release_date.lte"]
-                res = requests.get(url, params=params, timeout=12)
-                results = res.json().get("results", [])
-
-            movie_list = []
-            for m in results[:6]:
-                title = m.get("title") or m.get("original_title")
-                rel_date = m.get("release_date") or "Coming Soon"
-                poster_path = m.get("poster_path")
-                overview = m.get("overview") or ""
-                
-                poster_url = f"https://image.tmdb.org/t/p/original{poster_path}" if poster_path else None
-
-                movie_list.append({
-                    "id": m.get("id"),
-                    "title": title,
-                    "date": rel_date,
-                    "poster": poster_url,
-                    "story": overview
-                })
-            return movie_list
+        query = f"{movie_title} malayalam movie poster hd"
+        search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
+        r = requests.get(search_url, headers=HEADERS, timeout=8)
+        if r.status_code == 200:
+            links = re.findall(r'img_url=(https?[^&]+)', r.text)
+            for link in links:
+                unquoted = urllib.parse.unquote(link)
+                if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
+                    return unquoted
     except Exception as e:
-        print(f"[TMDB OTT Error]: {e}")
-    return []
+        print(f"[Poster Search Error]: {e}")
+    return None
 
-def download_temp_image(url, filename):
+def fetch_live_ott_releases():
+    """Nowrunning മലയാളം OTT ലൈവ് കലണ്ടർ സ്ക്രാപ്പ് ചെയ്യുന്നു"""
+    url = "https://www.nowrunning.com/malayalam-streaming-guide/"
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=12)
+        if res.status_code != 200:
+            return []
+
+        soup = BeautifulSoup(res.text, 'html.parser')
+        movie_items = []
+
+        # Nowrunning മൂവി കാർഡുകൾ
+        cards = soup.select('.col-sm-6, .col-md-4, .col-lg-3, .movie-listing, .stream-card')
+        for card in cards:
+            title_tag = card.find(['h3', 'h4', 'h5', 'a', 'strong'])
+            if not title_tag:
+                continue
+
+            name = title_tag.get_text().strip()
+            if not name or len(name) < 3 or "streaming" in name.lower():
+                continue
+
+            card_text = card.get_text()
+            platform = "Digital OTT"
+            for p in ["JioHotstar", "Hotstar", "SonyLIV", "Sony LIV", "Manorama MAX", "ManoramaMax", "Netflix", "Amazon Prime", "Prime Video", "Zee5", "Saina Play"]:
+                if p.lower() in card_text.lower():
+                    platform = p
+                    break
+
+            # ചിത്രം
+            img_tag = card.find('img')
+            img_url = img_tag.get('src') if img_tag else None
+
+            movie_items.append({
+                "title": name,
+                "platform": platform,
+                "poster": img_url
+            })
+
+        # വെബ്സൈറ്റ് ഘടന മാറിയാൽ നേരിട്ടുള്ള ലിസ്റ്റ് ബാക്കപ്പ്
+        if not movie_items:
+            for a in soup.find_all('a'):
+                href = a.get('href', '')
+                text = a.get_text().strip()
+                if '/movie/' in href and len(text) > 3:
+                    movie_items.append({
+                        "title": text,
+                        "platform": "OTT Premiere",
+                        "poster": None
+                    })
+
+        return movie_items[:6]
+    except Exception as e:
+        print(f"[Nowrunning Fetch Error]: {e}")
+        return []
+
+def download_image(url, path):
     try:
         r = requests.get(url, headers=HEADERS, timeout=12)
         if r.status_code == 200:
-            with open(filename, 'wb') as f:
+            with open(path, 'wb') as f:
                 f.write(r.content)
-            return filename
+            return path
     except Exception as e:
-        print(f"[Download Error]: {e}")
+        print(f"[Image Download Error]: {e}")
     return None
 
 async def run_ott_scraper(client: Client, status_msg=None):
     loop = asyncio.get_event_loop()
-    movies = await loop.run_in_executor(None, fetch_upcoming_malayalam_movies)
+    movies = await loop.run_in_executor(None, fetch_live_ott_releases)
 
     if not movies:
         if status_msg:
@@ -84,32 +114,32 @@ async def run_ott_scraper(client: Client, status_msg=None):
 
     posted = 0
     for item in movies:
-        movie_key = f"{item['title']}_{item['date']}".lower()
+        movie_key = f"{item['title']}_{item['platform']}".lower()
         if movie_key in POSTED_OTT_MOVIES:
             continue
 
-        caption = (
-            f"📢 <b>UPCOMING / NEW RELEASE</b> 🎬\n\n"
-            f"🎞 <b>Movie :</b> {item['title']}\n"
-            f"🗓 <b>Release Date :</b> {item['date']}\n"
-            f"🗣 <b>Audio :</b> Malayalam\n"
-        )
-        if item.get("story"):
-            caption += f"\n📖 <b>Storyline :</b>\n<i>{item['story'][:350]}...</i>\n"
+        clean_name = clean_title(item['title'])
+        best_poster = await loop.run_in_executor(None, get_ott_hd_poster, clean_name)
+        final_poster = best_poster or item.get("poster")
 
-        caption += (
-            f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        caption = (
+            f"📢 <b>UPCOMING / NEW OTT RELEASE</b> 🎬\n\n"
+            f"🎞 <b>Movie :</b> {item['title']}\n"
+            f"📺 <b>Platform :</b> <b>{item['platform']}</b>\n"
+            f"🗣 <b>Audio :</b> Malayalam\n"
+            f"🗓 <b>Status :</b> Streaming Soon / Out Now\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔔 <i>Stay tuned to RRK Movies for updates!</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
 
         button = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔍 Search Movie", switch_inline_query_current_chat=item['title'])]
+            [InlineKeyboardButton("🔍 Search Movie", switch_inline_query_current_chat=clean_name)]
         ])
 
         temp_img = None
-        if item.get("poster"):
-            temp_img = await loop.run_in_executor(None, download_temp_image, item["poster"], f"rel_{posted}.jpg")
+        if final_poster:
+            temp_img = await loop.run_in_executor(None, download_image, final_poster, f"ott_post_{posted}.jpg")
 
         try:
             if temp_img and os.path.exists(temp_img):
@@ -138,11 +168,11 @@ async def run_ott_scraper(client: Client, status_msg=None):
             print(f"[OTT Send Error]: {err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ റിലീസ് വിവരങ്ങൾ ചാനലിൽ പോസ്റ്റ് ചെയ്തു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ OTT അപ്‌ഡേറ്റുകൾ ചാനലിൽ പോസ്റ്റ് ചെയ്തു.")
 
 @Client.on_message(filters.command("ott") & filters.private)
 async def manual_ott_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 പുതിയ റിലീസുകൾ പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 പുതിയ OTT റിലീസുകൾ പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_ott_scraper(client, msg)
 
 async def auto_ott_loop(client: Client):
@@ -152,7 +182,6 @@ async def auto_ott_loop(client: Client):
             await run_ott_scraper(client)
         except Exception as e:
             print(f"[OTT Loop Error]: {e}")
-        # ഓരോ 4 മണിക്കൂറിലും പരിശോധിക്കുന്നു
         await asyncio.sleep(14400)
 
 @Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-2)
