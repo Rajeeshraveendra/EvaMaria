@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import urllib.parse
+from datetime import datetime, timezone, timedelta
 import requests
 from bs4 import BeautifulSoup
 from pyrogram import Client, filters, enums
@@ -11,13 +12,30 @@ UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 GROUP_NAME = "RRK Movies Group"
 
-POSTED_LINKS = set()
+HISTORY_FILE = "posted_movierulz.txt"
 TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
 }
+
+def load_posted_links():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
+
+def save_posted_link(link):
+    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{link}\n")
+
+def is_sleep_time():
+    """UAE (UTC+4) & India (UTC+5:30) 10 PM to 7 AM sleep mode"""
+    now_utc = datetime.now(timezone.utc)
+    gst_hour = (now_utc + timedelta(hours=4)).hour
+    ist_hour = (now_utc + timedelta(hours=5, minutes=30)).hour
+    return (gst_hour >= 22 or gst_hour < 7) or (ist_hour >= 22 or ist_hour < 7)
 
 def clean_movie_title(raw_title):
     year_match = re.search(r'\b(20\d\d|19\d\d)\b', raw_title)
@@ -37,7 +55,6 @@ def clean_movie_title(raw_title):
     return title, year
 
 def get_movie_meta_and_trailer(clean_title, year=""):
-    """TMDB API വഴി പോസ്റ്ററും ഒഫീഷ്യൽ യൂട്യൂബ് ട്രെയിലറും എടുക്കുന്നു"""
     poster_url = None
     trailer_url = None
     try:
@@ -53,7 +70,6 @@ def get_movie_meta_and_trailer(clean_title, year=""):
                 if results[0].get("poster_path"):
                     poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
 
-                # ഒഫീഷ്യൽ യൂട്യൂബ് ട്രെയിലർ API
                 if movie_id:
                     v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
                     v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=8)
@@ -66,12 +82,10 @@ def get_movie_meta_and_trailer(clean_title, year=""):
     except Exception as e:
         print(f"[TMDB Details Error]: {e}")
 
-    # യൂട്യൂബ് ഡയറക്റ്റ് സെർച്ച് ഫാൾബാക്ക്
     if not trailer_url:
         search_query = urllib.parse.quote(f"{clean_title} {year} malayalam movie official trailer")
         trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
 
-    # പോസ്റ്റർ ഇമേജ് ഫാൾബാക്ക്
     if not poster_url:
         try:
             query = f"{clean_title} {year} malayalam movie poster hd"
@@ -150,7 +164,12 @@ def fetch_movie_story(page_url):
         print(f"[Scraper] Detail Error: {e}")
         return None
 
-async def run_scraper_process(client: Client, status_msg=None):
+async def run_scraper_process(client: Client, status_msg=None, force=False):
+    if not force and is_sleep_time():
+        print("[Movierulz Scraper] Sleep mode active. Skipping automatic post.")
+        return
+
+    posted_links = load_posted_links()
     loop = asyncio.get_event_loop()
     movies = await loop.run_in_executor(None, fetch_movierulz_movies)
     
@@ -162,7 +181,7 @@ async def run_scraper_process(client: Client, status_msg=None):
     posted_count = 0
     for movie in reversed(movies):
         link = movie["page_url"]
-        if link in POSTED_LINKS:
+        if link in posted_links:
             continue
 
         clean_title, year = clean_movie_title(movie["title"])
@@ -202,7 +221,8 @@ async def run_scraper_process(client: Client, status_msg=None):
                     photo=downloaded_file,
                     caption=caption,
                     reply_markup=button_markup,
-                    parse_mode=enums.ParseMode.HTML
+                    parse_mode=enums.ParseMode.HTML,
+                    disable_notification=True
                 )
                 try:
                     os.remove(downloaded_file)
@@ -214,22 +234,23 @@ async def run_scraper_process(client: Client, status_msg=None):
                     photo=final_img_url,
                     caption=caption,
                     reply_markup=button_markup,
-                    parse_mode=enums.ParseMode.HTML
+                    parse_mode=enums.ParseMode.HTML,
+                    disable_notification=True
                 )
             posted_count += 1
-            POSTED_LINKS.add(link)
+            save_posted_link(link)
+            posted_links.add(link)
             await asyncio.sleep(4)
         except Exception as send_err:
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ HD പോസ്റ്റുകൾ അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പോസ്റ്റുകൾ അയച്ചു.")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
-    POSTED_LINKS.clear()
-    msg = await message.reply_text("🔍 ഹൈ-റെസല്യൂഷൻ പോസ്റ്ററുകളും ട്രെയിലറും തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
-    await run_scraper_process(client, msg)
+    msg = await message.reply_text("🔍 മാനുവൽ സ്ക്രാപ്പ് റൺ ചെയ്യുന്നു...")
+    await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
     await asyncio.sleep(30)
