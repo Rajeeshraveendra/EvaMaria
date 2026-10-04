@@ -1,21 +1,20 @@
 import asyncio
 import os
 import re
-import urllib.parse
 import requests
 from bs4 import BeautifulSoup
+from imdb import Cinemagoer
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 POSTED_LINKS = set()
 
-TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
+# Cinemagoer (IMDb) ഒറിജിനൽ HD പോസ്റ്റർ ലഭ്യമാക്കാൻ
+ia = Cinemagoer()
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 }
 
 def clean_movie_title(raw_title):
@@ -35,57 +34,27 @@ def clean_movie_title(raw_title):
     title = re.sub(r"\s+", " ", title).strip()
     return title, year
 
-def get_tmdb_poster(movie_title, year=None):
+def get_imdb_hd_poster(title, year=None):
+    """IMDb-യിൽ നിന്ന് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു"""
     try:
-        url = "https://api.themoviedb.org/3/search/movie"
-        params = {"api_key": TMDB_API_KEY, "query": movie_title, "include_adult": "false"}
-        if year:
-            params["primary_release_year"] = year
-        res = requests.get(url, params=params, timeout=8)
-        if res.status_code == 200:
-            results = res.json().get("results", [])
-            if results and results[0].get("poster_path"):
-                return f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
+        search_query = f"{title} {year}" if year else title
+        results = ia.search_movie(search_query)
+        if not results and year:
+            results = ia.search_movie(title)
+            
+        if results:
+            movie = results[0]
+            ia.update(movie, ['main'])
+            # 'full-size cover url' ഒറിജിനൽ HD ക്വാളിറ്റി നൽകുന്നു
+            cover = movie.get('full-size cover url') or movie.get('cover url')
+            if cover:
+                # ആമസോൺ/IMDb ഇമേജ് ലിങ്കിലെ ക്രോപ്പിംഗ് ടാഗുകൾ ഒഴിവാക്കി അൺകംപ്രസ്സ്ഡ് ഫയലാക്കുന്നു
+                hd_url = re.sub(r'UX\d+.*?\.', '', cover)
+                hd_url = re.sub(r'UY\d+.*?\.', '', hd_url)
+                hd_url = re.sub(r'CR\d+.*?\.', '', hd_url)
+                return hd_url
     except Exception as e:
-        print(f"[TMDB] Error: {e}")
-    return None
-
-def get_duckduckgo_hd_poster(query):
-    """TMDB-യിൽ ഇല്ലാത്ത പുതിയ സിനിമകൾക്ക് Bing/DDG വഴി ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ കണ്ടെത്തുന്നു"""
-    try:
-        search_query = f"{query} malayalam movie poster"
-        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(search_query)}"
-        res = requests.get(url, headers=HEADERS, timeout=10)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for a in soup.find_all('a', class_='result__snippet'):
-                pass
-            # ഇമേജ് നേരിട്ട് ലഭ്യമാക്കാൻ DuckDuckGo Image API
-            img_url_req = f"https://duckduckgo.com/i.js?q={urllib.parse.quote(search_query)}"
-            img_res = requests.get(img_url_req, headers=HEADERS, timeout=10)
-            if img_res.status_code == 200:
-                data = img_res.json()
-                results = data.get("results", [])
-                for item in results:
-                    img = item.get("image")
-                    # വലിപ്പമുള്ള ഒറിജിനൽ ഇമേജ് മാത്രം തിരഞ്ഞെടുക്കുന്നു
-                    if img and (item.get("width", 0) > 600 or item.get("height", 0) > 800):
-                        return img
-                    elif img and not img.endswith(".gif"):
-                        return img
-    except Exception as e:
-        print(f"[HD Search] Error: {e}")
-    return None
-
-def download_file(url, out_name):
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=15)
-        if res.status_code == 200 and len(res.content) > 10000:
-            with open(out_name, 'wb') as f:
-                f.write(res.content)
-            return out_name
-    except Exception as e:
-        print(f"[Download] Error: {e}")
+        print(f"[IMDb HD Poster] Error: {e}")
     return None
 
 def fetch_movierulz_movies():
@@ -147,6 +116,17 @@ def fetch_movie_story(page_url):
         print(f"[Scraper] Detail Error: {e}")
         return None, None
 
+def download_temp_image(url, path):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=15)
+        if r.status_code == 200:
+            with open(path, 'wb') as f:
+                f.write(r.content)
+            return path
+    except Exception as e:
+        print(f"[Download Error]: {e}")
+    return None
+
 async def run_scraper_process(client: Client, status_msg=None):
     loop = asyncio.get_event_loop()
     movies = await loop.run_in_executor(None, fetch_movierulz_movies)
@@ -164,16 +144,12 @@ async def run_scraper_process(client: Client, status_msg=None):
 
         clean_title, year = clean_movie_title(movie["title"])
 
-        # 1. TMDB പരിശോധിക്കുന്നു
-        best_poster = await loop.run_in_executor(None, get_tmdb_poster, clean_title, year)
+        # 1. IMDb വഴി ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ
+        best_poster = await loop.run_in_executor(None, get_imdb_hd_poster, clean_title, year)
 
-        # 2. TMDB-യിൽ ഇല്ലെങ്കിൽ ഹൈ-റെസല്യൂഷൻ ഇമേജ് സെർച്ച് നടത്തുന്നു
-        if not best_poster:
-            best_poster = await loop.run_in_executor(None, get_duckduckgo_hd_poster, clean_title)
-
-        # 3. ബാക്കപ്പായി Movierulz ഇമേജ്
+        # 2. ബാക്കപ്പായി കഥയും Movierulz ചിത്രവും
         story, fallback_poster = await loop.run_in_executor(None, fetch_movie_story, link)
-        final_url = best_poster or fallback_poster or movie.get("poster")
+        final_poster_url = best_poster or fallback_poster or movie.get("poster")
 
         caption = (
             f"🎬 <b>{movie['title']}</b>\n\n"
@@ -191,21 +167,21 @@ async def run_scraper_process(client: Client, status_msg=None):
             [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=clean_title)]
         ])
 
-        local_file = None
-        if final_url:
-            local_file = await loop.run_in_executor(None, download_file, final_url, f"poster_{posted_count}.jpg")
+        temp_file = None
+        if final_poster_url:
+            temp_file = await loop.run_in_executor(None, download_temp_image, final_poster_url, f"imdb_{posted_count}.jpg")
 
         try:
-            if local_file and os.path.exists(local_file):
+            if temp_file and os.path.exists(temp_file):
                 await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=local_file,
+                    photo=temp_file,
                     caption=caption,
                     reply_markup=button,
                     parse_mode=enums.ParseMode.HTML
                 )
                 try:
-                    os.remove(local_file)
+                    os.remove(temp_file)
                 except:
                     pass
             else:
@@ -222,11 +198,11 @@ async def run_scraper_process(client: Client, status_msg=None):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ ക്രിസ്റ്റൽ ക്ലിയർ HD പോസ്റ്റുകൾ അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ IMDb HD പോസ്റ്റുകൾ അയച്ചു.")
 
 @Client.on_message(filters.command("scrape"))
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 HD പോസ്റ്ററുകൾ പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 IMDb-യിൽ നിന്ന് HD പോസ്റ്ററുകൾ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_scraper_process(client, msg)
 
 async def auto_loop(client: Client):
