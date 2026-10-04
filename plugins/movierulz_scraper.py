@@ -9,23 +9,47 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 POSTED_LINKS = set()
 
+# TMDB പബ്ലിക് റീഡ്-കീ (ഹൈ-ക്വാളിറ്റി ഒഫീഷ്യൽ പോസ്റ്ററുകൾക്കായി)
+TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
+
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
 def clean_title_for_search(raw_title):
+    # വർഷം പ്രത്യേകം തിരിച്ചറിയുന്നു (e.g. 2026)
+    year_match = re.search(r'\b(20\d\d|19\d\d)\b', raw_title)
+    year = year_match.group(1) if year_match else None
+
     title = re.sub(r"\(.*?\)|\[.*?\]", "", raw_title)
-    tags = ["malayalam", "full movie", "watch online", "free", "download", "hdrip", "dvdrip", "hd"]
+    tags = ["malayalam", "full movie", "watch online", "free", "download", "hdrip", "dvdrip", "hd", "telugu", "tamil", "kannada", "hindi"]
     for t in tags:
         title = re.sub(rf"\b{t}\b", "", title, flags=re.IGNORECASE)
-    return title.strip()
+    cleaned = title.strip()
+    return cleaned, year
 
-def clean_poster_url(url):
-    """വേർഡ്പ്രസ്സ് തമ്പ്‌നെയിൽ സൈസുകൾ നീക്കം ചെയ്ത് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ ഇമേജ് നൽകുന്നു"""
-    if not url:
-        return None
-    # ഉദാഹരണത്തിന്: poster-165x248.jpg എന്നത് മാറ്റി poster.jpg എന്ന ഒറിജിനൽ ഫയൽ എടുക്കുന്നു
-    return re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', url)
+def get_tmdb_hd_poster(movie_title, year=None):
+    """TMDB-യിൽ നിന്ന് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു"""
+    try:
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {
+            "api_key": TMDB_API_KEY,
+            "query": movie_title,
+            "include_adult": "false"
+        }
+        if year:
+            params["primary_release_year"] = year
+
+        res = requests.get(url, params=params, timeout=8)
+        if res.status_code == 200:
+            data = res.json()
+            results = data.get("results", [])
+            if results and results[0].get("poster_path"):
+                # original ക്വാളിറ്റിയിൽ നേരിട്ടുള്ള ലിങ്ക്
+                return f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
+    except Exception as e:
+        print(f"[TMDB] Fetch error: {e}")
+    return None
 
 def fetch_movierulz_movies():
     url = "https://www.5movierulz.works/category/malayalam-featured"
@@ -47,8 +71,7 @@ def fetch_movierulz_movies():
 
             page_link = a_tag['href']
             img_tag = item.find('img')
-            raw_poster = img_tag.get('src') if img_tag else None
-            poster = clean_poster_url(raw_poster)
+            poster = img_tag.get('src') if img_tag else None
             title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
 
             movie_list.append({
@@ -68,21 +91,14 @@ def fetch_movie_story(page_url):
             return None, None
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        poster_url = None
-
-        # 1. ഏറ്റവും വ്യക്തതയുള്ള ഒഫീഷ്യൽ og:image മെറ്റാ ടാഗ് പരിശോധിക്കുന്നു
         meta_img = soup.find('meta', property='og:image')
-        if meta_img and meta_img.get('content'):
-            poster_url = meta_img['content']
+        poster_url = meta_img['content'] if (meta_img and meta_img.get('content')) else None
 
-        # 2. ഇല്ലെങ്കിൽ പ്രധാന ഉള്ളടക്കത്തിലെ ഇമേജ് കണ്ടെത്തി ഒറിജിനൽ റെസല്യൂഷൻ ആക്കുന്നു
         if not poster_url:
             entry_div = soup.find('div', class_='entry-content') or soup
             img_elem = entry_div.find('img')
             if img_elem and img_elem.get('src'):
                 poster_url = img_elem['src']
-
-        poster_url = clean_poster_url(poster_url)
 
         story_text = ""
         for p in soup.find_all('p'):
@@ -102,7 +118,7 @@ async def run_scraper_process(client: Client, status_msg=None):
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല അല്ലെങ്കിൽ സൈറ്റ് ബ്ലോക്ക് ആണ്.")
+            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല അല്ലെങ്കിൽ സൈറ്റ് തടസ്സപ്പെട്ടു.")
         return
 
     posted_count = 0
@@ -111,9 +127,15 @@ async def run_scraper_process(client: Client, status_msg=None):
         if link in POSTED_LINKS:
             continue
 
-        story, detailed_poster = await loop.run_in_executor(None, fetch_movie_story, link)
-        final_poster = detailed_poster or movie.get("poster")
-        search_query = clean_title_for_search(movie["title"])
+        search_query, year = clean_title_for_search(movie["title"])
+
+        # 1. ആദ്യം TMDB-യിൽ നിന്ന് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഫെച്ച് ചെയ്യുന്നു
+        tmdb_poster = await loop.run_in_executor(None, get_tmdb_hd_poster, search_query, year)
+
+        # 2. Movierulz-ൽ നിന്നുള്ള കഥയും ബാക്കപ്പ് പോസ്റ്ററും
+        story, fallback_poster = await loop.run_in_executor(None, fetch_movie_story, link)
+
+        final_poster = tmdb_poster or fallback_poster or movie.get("poster")
 
         caption = (
             f"🎬 <b>{movie['title']}</b>\n\n"
@@ -154,11 +176,11 @@ async def run_scraper_process(client: Client, status_msg=None):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ പോസ്റ്റുകൾ ചാനലിലേക്ക് അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ HD പോസ്റ്റുകൾ ചാനലിലേക്ക് അയച്ചു.")
 
 @Client.on_message(filters.command("scrape"))
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 Movierulz പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 Movierulz & TMDB HD പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_scraper_process(client, msg)
 
 async def auto_loop(client: Client):
