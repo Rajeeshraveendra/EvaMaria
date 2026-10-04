@@ -24,8 +24,10 @@ def clean_title_for_search(raw_title):
 
 def fetch_movierulz_movies():
     url = "https://www.5movierulz.works/category/malayalam-featured"
+    print(f"[Scraper] Checking URL: {url}")
     try:
-        response = requests.get(url, headers=HEADERS, timeout=12)
+        response = requests.get(url, headers=HEADERS, timeout=15)
+        print(f"[Scraper] Site Response Status: {response.status_code}")
         if response.status_code != 200:
             return []
 
@@ -34,8 +36,9 @@ def fetch_movierulz_movies():
         if not items:
             items = soup.select('.content ul li') or soup.find_all('div', class_='item')
 
+        print(f"[Scraper] Found {len(items)} items on page")
         movie_list = []
-        for item in items[:6]:
+        for item in items[:5]:
             a_tag = item.find('a')
             if not a_tag or not a_tag.get('href'):
                 continue
@@ -52,7 +55,7 @@ def fetch_movierulz_movies():
             })
         return movie_list
     except Exception as e:
-        print(f"MovieRulz Listing Fetch Error: {e}")
+        print(f"[Scraper] Listing Fetch Error: {e}")
         return []
 
 def fetch_movie_story(page_url):
@@ -79,14 +82,16 @@ def fetch_movie_story(page_url):
 
         return story_text, poster_url
     except Exception as e:
-        print(f"MovieRulz Detail Fetch Error: {e}")
+        print(f"[Scraper] Detail Fetch Error: {e}")
         return None, None
 
 async def movierulz_crawler_loop(client: Client):
-    await asyncio.sleep(45)
+    print("[Scraper] Starting loop, waiting 15 seconds...")
+    await asyncio.sleep(15)
 
     while True:
         try:
+            print("[Scraper] Fetching latest Malayalam movies...")
             loop = asyncio.get_event_loop()
             movies = await loop.run_in_executor(None, fetch_movierulz_movies)
 
@@ -95,6 +100,7 @@ async def movierulz_crawler_loop(client: Client):
                 if link in POSTED_LINKS:
                     continue
 
+                print(f"[Scraper] New Movie Found: {movie['title']}")
                 story, detailed_poster = await loop.run_in_executor(None, fetch_movie_story, link)
                 final_poster = detailed_poster or movie.get("poster")
                 search_query = clean_title_for_search(movie["title"])
@@ -125,7 +131,7 @@ async def movierulz_crawler_loop(client: Client):
                             parse_mode=enums.ParseMode.HTML
                         )
                     except Exception as send_err:
-                        print(f"Scraper Photo Send Error: {send_err}")
+                        print(f"[Scraper] Photo Send Error: {send_err}")
                 else:
                     await client.send_message(
                         chat_id=UPDATE_CHANNEL,
@@ -138,12 +144,10 @@ async def movierulz_crawler_loop(client: Client):
                 await asyncio.sleep(6)
 
         except Exception as loop_err:
-            print(f"Crawler Master Loop Error: {loop_err}")
+            print(f"[Scraper] Master Loop Error: {loop_err}")
 
+        # 20 മിനിറ്റ് കാത്തിരിക്കുന്നു
         await asyncio.sleep(1200)
 
-@Client.on_message()
-async def _trigger_scraper_on_start(client, message):
-    if not hasattr(client, '_movierulz_running'):
-        client._movierulz_running = True
-        asyncio.create_task(movierulz_crawler_loop(client))
+# പ്ലഗിൻ ലോഡ് ആകുമ്പോൾ തന്നെ മെസ്സേജിനായി കാത്തുനിൽക്കാതെ നേരിട്ട് റൺ ചെയ്യുന്നു
+asyncio.create_task(movierulz_crawler_loop(Client))
