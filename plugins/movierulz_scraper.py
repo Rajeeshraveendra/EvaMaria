@@ -20,12 +20,17 @@ def clean_title_for_search(raw_title):
         title = re.sub(rf"\b{t}\b", "", title, flags=re.IGNORECASE)
     return title.strip()
 
+def clean_poster_url(url):
+    """വേർഡ്പ്രസ്സ് തമ്പ്‌നെയിൽ സൈസുകൾ നീക്കം ചെയ്ത് ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ ഇമേജ് നൽകുന്നു"""
+    if not url:
+        return None
+    # ഉദാഹരണത്തിന്: poster-165x248.jpg എന്നത് മാറ്റി poster.jpg എന്ന ഒറിജിനൽ ഫയൽ എടുക്കുന്നു
+    return re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', url)
+
 def fetch_movierulz_movies():
     url = "https://www.5movierulz.works/category/malayalam-featured"
-    print(f"[Scraper] Requesting URL: {url}")
     try:
         response = requests.get(url, headers=HEADERS, timeout=15)
-        print(f"[Scraper] HTTP Status: {response.status_code}")
         if response.status_code != 200:
             return []
 
@@ -34,7 +39,6 @@ def fetch_movierulz_movies():
         if not items:
             items = soup.select('.content ul li') or soup.find_all('div', class_='item')
 
-        print(f"[Scraper] Found {len(items)} items")
         movie_list = []
         for item in items[:5]:
             a_tag = item.find('a')
@@ -43,7 +47,8 @@ def fetch_movierulz_movies():
 
             page_link = a_tag['href']
             img_tag = item.find('img')
-            poster = img_tag.get('src') if img_tag else None
+            raw_poster = img_tag.get('src') if img_tag else None
+            poster = clean_poster_url(raw_poster)
             title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
 
             movie_list.append({
@@ -64,10 +69,20 @@ def fetch_movie_story(page_url):
 
         soup = BeautifulSoup(response.text, 'html.parser')
         poster_url = None
-        entry_div = soup.find('div', class_='entry-content') or soup
-        img_elem = entry_div.find('img')
-        if img_elem and img_elem.get('src'):
-            poster_url = img_elem['src']
+
+        # 1. ഏറ്റവും വ്യക്തതയുള്ള ഒഫീഷ്യൽ og:image മെറ്റാ ടാഗ് പരിശോധിക്കുന്നു
+        meta_img = soup.find('meta', property='og:image')
+        if meta_img and meta_img.get('content'):
+            poster_url = meta_img['content']
+
+        # 2. ഇല്ലെങ്കിൽ പ്രധാന ഉള്ളടക്കത്തിലെ ഇമേജ് കണ്ടെത്തി ഒറിജിനൽ റെസല്യൂഷൻ ആക്കുന്നു
+        if not poster_url:
+            entry_div = soup.find('div', class_='entry-content') or soup
+            img_elem = entry_div.find('img')
+            if img_elem and img_elem.get('src'):
+                poster_url = img_elem['src']
+
+        poster_url = clean_poster_url(poster_url)
 
         story_text = ""
         for p in soup.find_all('p'):
@@ -87,7 +102,7 @@ async def run_scraper_process(client: Client, status_msg=None):
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല അല്ലെങ്കിൽ സൈറ്റ് ബ്ലോക്ക് ആണ് (Status 403 / Cloudflare).")
+            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല അല്ലെങ്കിൽ സൈറ്റ് ബ്ലോക്ക് ആണ്.")
         return
 
     posted_count = 0
@@ -141,13 +156,11 @@ async def run_scraper_process(client: Client, status_msg=None):
     if status_msg:
         await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ പോസ്റ്റുകൾ ചാനലിലേക്ക് അയച്ചു.")
 
-# മാന്വൽ ആയി ടെസ്റ്റ് ചെയ്യാനുള്ള കമാൻഡ്
 @Client.on_message(filters.command("scrape"))
 async def manual_scrape_cmd(client: Client, message):
     msg = await message.reply_text("🔍 Movierulz പരിശോധിക്കുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_scraper_process(client, msg)
 
-# ബാക്ക്ഗ്രൗണ്ട് ഓട്ടോ ലൂപ്പ്
 async def auto_loop(client: Client):
     await asyncio.sleep(30)
     while True:
