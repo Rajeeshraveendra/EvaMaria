@@ -2,14 +2,13 @@ import re
 import asyncio
 import os
 import random
+import json
+import urllib.request
+import urllib.parse
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from info import CHANNELS, PICS, ADMINS
 from database.ia_filterdb import save_file
-from imdb import Cinemagoer
-
-# IMDb instance
-ia = Cinemagoer()
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 
@@ -35,34 +34,31 @@ async def get_imdb_details(movie_name):
     loop = asyncio.get_event_loop()
     def fetch():
         try:
-            movies = ia.search_movie(movie_name)
-            if not movies:
-                return None
-            movie = movies[0]
-            ia.update(movie, ['main', 'plot'])
+            # Free IMDb API endpoint
+            query = urllib.parse.quote(movie_name)
+            url = f"https://www.omdbapi.com/?t={query}&apikey=b6636080"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            response = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(response.read().decode())
             
-            title = movie.get('title', movie_name)
-            year = movie.get('year', '')
-            rating = movie.get('rating', 'N/A')
-            genres = ", ".join(movie.get('genres', []))
-            
-            # Story / Plot edukkunnu
-            plot_list = movie.get('plot', [])
-            story = plot_list[0] if plot_list else movie.get('plot outline', 'No story description available.')
-            # Length kooduthal aanenkil shrink cheyyunnu
-            if len(story) > 600:
-                story = story[:600] + "..."
+            if data.get("Response") == "True":
+                title = data.get("Title", movie_name)
+                year = data.get("Year", "")
+                rating = data.get("imdbRating", "N/A")
+                genres = data.get("Genre", "N/A")
+                story = data.get("Plot", "No storyline available.")
+                poster = data.get("Poster") if data.get("Poster") != "N/A" else None
                 
-            poster = movie.get('full-size cover url', None)
-            return {
-                "title": f"{title} ({year})" if year else title,
-                "rating": rating,
-                "genres": genres,
-                "story": story,
-                "poster": poster
-            }
+                return {
+                    "title": f"{title} ({year})" if year else title,
+                    "rating": rating,
+                    "genres": genres,
+                    "story": story,
+                    "poster": poster
+                }
+            return None
         except Exception as e:
-            print(f"IMDb Error: {e}")
+            print(f"IMDb API Error: {e}")
             return None
 
     return await loop.run_in_executor(None, fetch)
@@ -121,7 +117,7 @@ async def save_direct_files(client, message):
         if is_success:
             await message.reply_text(f"✅ <b>Database-il save cheythu!</b>\n\n📁 <code>{media.file_name}</code>", quote=True)
         else:
-            await message.reply_text(f"ℹ️️ <b>File already database-il undu:</b>\n\n📁 <code>{media.file_name}</code>", quote=True)
+            await message.reply_text(f"ℹ <b>File already database-il undu:</b>\n\n📁 <code>{media.file_name}</code>", quote=True)
     except Exception as e:
         await message.reply_text(f"⚠️ <b>Save cheyyan kazhinjilla:</b>\n<code>{e}</code>", quote=True)
 
@@ -167,7 +163,6 @@ async def auto_post_to_group(client, message):
                     print(f"Edit Caption Error: {e}")
             return
 
-        # IMDb-il ninnu katha fetch cheyyunnu
         imdb_info = await get_imdb_details(base_title)
         entries = [line_entry]
         caption, buttons = get_caption_and_buttons(base_title, entries, imdb_info)
