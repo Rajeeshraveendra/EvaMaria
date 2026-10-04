@@ -12,7 +12,8 @@ POSTED_OTT_MOVIES = set()
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9'
 }
 
 def clean_title(title_raw):
@@ -21,9 +22,8 @@ def clean_title(title_raw):
     return re.sub(r"\s+", " ", cleaned).strip()
 
 def get_ott_poster(movie_title):
-    """യാൻഡെക്സ് വഴി ഒഫീഷ്യൽ ഹൈ-റെസല്യൂഷൻ OTT റിലീസ് പോസ്റ്റർ കണ്ടെത്തുന്നു"""
     try:
-        query = f"{movie_title} malayalam movie ott release poster hd"
+        query = f"{movie_title} malayalam movie poster hd"
         search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
         r = requests.get(search_url, headers=HEADERS, timeout=10)
         if r.status_code == 200:
@@ -48,42 +48,47 @@ def download_temp_image(url, filename):
     return None
 
 def fetch_upcoming_malayalam_ott():
-    """Binged / OTT റിലീസ് കലണ്ടറിൽ നിന്ന് വിവരങ്ങൾ ശേഖരിക്കുന്നു"""
-    url = "https://www.binged.com/streaming-premiere-dates/malayalam/"
+    """Filmibeat / OTT കലണ്ടറിൽ നിന്ന് മലയാളം റിലീസുകൾ ശേഖരിക്കുന്നു"""
+    url = "https://www.filmibeat.com/malayalam/ott-releases.html"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15)
         if res.status_code != 200:
-            return []
+            # ബാക്കപ്പ് എൻഡ്‌പോയിന്റ്
+            url = "https://www.binged.com/streaming-premiere-dates/malayalam/"
+            res = requests.get(url, headers=HEADERS, timeout=15)
 
         soup = BeautifulSoup(res.text, 'html.parser')
-        rows = soup.find_all('tr')
-        if not rows:
-            rows = soup.select('.table tbody tr')
-
         releases = []
-        for row in rows[:12]:
-            cols = row.find_all('td')
-            if len(cols) >= 3:
-                # മൂവി ടൈറ്റിൽ
-                title_elem = cols[0].find('a') or cols[0]
-                movie_name = title_elem.get_text().strip()
-                if not movie_name or "movie" in movie_name.lower():
-                    continue
 
-                # സ്ട്രീമിംഗ് പ്ലാറ്റ്‌ഫോം
-                platform_elem = cols[1].find('img')
-                platform = platform_elem.get('alt', '').strip() if platform_elem else cols[1].get_text().strip()
-                if not platform:
-                    platform = "OTT Platform"
+        # Filmibeat ഘടന
+        items = soup.select('.ott-movie-list li, .movie-list-item, tr')
+        for item in items[:15]:
+            title_elem = item.find(['h3', 'h4', 'a', 'strong'])
+            if not title_elem:
+                continue
 
-                # റിലീസ് തീയതി
-                release_date = cols[2].get_text().strip()
+            movie_name = title_elem.get_text().strip()
+            if not movie_name or len(movie_name) < 2 or "movie" in movie_name.lower():
+                continue
 
-                releases.append({
-                    "title": movie_name,
-                    "platform": platform,
-                    "date": release_date
-                })
+            # പ്ലാറ്റ്‌ഫോം
+            text_all = item.get_text()
+            platform = "OTT Platform"
+            for p in ["Netflix", "Amazon Prime", "SonyLIV", "Disney+ Hotstar", "Manorama Max", "Zee5", "Saina Play", "JioCinema"]:
+                if p.lower() in text_all.lower():
+                    platform = p
+                    break
+
+            # തീയതി
+            date_match = re.search(r'(\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+(?:\s+\d{4})?|Coming Soon)', text_all, re.IGNORECASE)
+            release_date = date_match.group(1) if date_match else "Coming Soon"
+
+            releases.append({
+                "title": movie_name,
+                "platform": platform,
+                "date": release_date
+            })
+
         return releases
     except Exception as e:
         print(f"[OTT Fetch Error]: {e}")
@@ -95,11 +100,11 @@ async def run_ott_scraper(client: Client, status_msg=None):
 
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ OTT വിവരങ്ങൾ കണ്ടെത്താനായില്ല.")
+            await status_msg.edit_text("❌ നിലവിൽ പുതിയ OTT വിവരങ്ങൾ ലഭ്യമല്ല. അല്പം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.")
         return
 
     posted = 0
-    for item in movies:
+    for item in movies[:6]:
         movie_key = f"{item['title']}_{item['platform']}".lower()
         if movie_key in POSTED_OTT_MOVIES:
             continue
@@ -114,7 +119,7 @@ async def run_ott_scraper(client: Client, status_msg=None):
             f"🗓 <b>Release Date :</b> {item['date']}\n"
             f"🗣 <b>Audio :</b> Malayalam\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔔 <i>Stay tuned for instant download links!</i>\n"
+            f"🔔 <i>Stay tuned to RRK Movies for instant updates!</i>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
 
@@ -167,7 +172,6 @@ async def auto_ott_loop(client: Client):
             await run_ott_scraper(client)
         except Exception as e:
             print(f"[OTT Loop Error]: {e}")
-        # ഓരോ 2 മണിക്കൂറിലും പരിശോധിക്കുന്നു
         await asyncio.sleep(7200)
 
 @Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-2)
