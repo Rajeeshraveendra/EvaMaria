@@ -30,13 +30,13 @@ def get_readable_file_size(size_in_bytes):
         return "N/A"
 
 async def auto_delete_group_pair(client, chat_id, user_msg_id, bot_msg_id=None, delay=5):
-    """5 സെക്കൻഡിൽ മെസ്സേജ് ഐഡി ഉപയോഗിച്ച് നേരിട്ട് ഗ്രൂപ്പിൽ നിന്ന് ഡിലീറ്റ് ചെയ്യുന്നു"""
+    """നിശ്ചിത സെക്കൻഡുകൾക്ക് ശേഷം യൂസർ മെസ്സേജും ബോട്ട് മെസ്സേജും നീക്കം ചെയ്യുന്നു"""
     await asyncio.sleep(delay)
-    try:
-        if bot_msg_id:
+    if bot_msg_id:
+        try:
             await client.delete_messages(chat_id=chat_id, message_ids=bot_msg_id)
-    except Exception as e:
-        logger.error(f"Bot Msg Delete Error: {e}")
+        except Exception as e:
+            logger.error(f"Bot Msg Delete Error: {e}")
     try:
         await client.delete_messages(chat_id=chat_id, message_ids=user_msg_id)
     except Exception as e:
@@ -77,7 +77,6 @@ async def is_subscribed(client, user_id):
         return True
     return False
 
-# group=-1 നൽകി ഏറ്റവും ഉയർന്ന മുൻഗണന നൽകുന്നു
 @Client.on_message(filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
 async def pm_group_movie_search(client, message):
     if not message.text:
@@ -90,18 +89,14 @@ async def pm_group_movie_search(client, message):
     if len(text) < 2:
         return
 
-    # മറ്റ് എല്ലാ പ്ലഗിനുകളിലേക്കും ഈ മെസ്സേജ് പോകുന്നത് പൂർണ്ണമായി തടയുന്നു!
-    # ഇതോടെ പഴയ ഫയലുകളിൽ നിന്നുള്ള ഒരു 'Movie Not Found' മെസ്സേജും ഇനി ഗ്രൂപ്പിൽ വരില്ല.
     message.stop_propagation()
 
-    chat_type = message.chat.type
     user = message.from_user
-
-    if not user:
+    if not user or user.is_bot:
         return
 
-    if user.is_bot:
-        return
+    # ഗ്രൂപ്പ് ആണോ എന്ന് വ്യക്തമായി പരിശോധിക്കുന്നു
+    is_group = message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] or str(message.chat.type).lower().endswith("group")
 
     query = text
     user_id = user.id
@@ -126,7 +121,7 @@ async def pm_group_movie_search(client, message):
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
-            if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+            if is_group:
                 asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, fsub_msg.id, delay=10))
         except Exception:
             pass
@@ -139,7 +134,7 @@ async def pm_group_movie_search(client, message):
         logger.error(f"Search Query Error: {e}")
         return
 
-    # ഫയലുകൾ ഇല്ലെങ്കിൽ
+    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
     if not files:
         suggestion = await get_db_spelling_suggestion(query)
         buttons = []
@@ -175,16 +170,31 @@ async def pm_group_movie_search(client, message):
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=enums.ParseMode.HTML
             )
-            del_delay = 5 if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] else 60
+            del_delay = 5 if is_group else 60
             asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, not_found_msg.id, delay=del_delay))
         except Exception:
             pass
         return
 
+    # 3. ഗ്രൂപ്പിൽ അയച്ചയുടൻ കൺഫർമേഷൻ കൊടുക്കുകയും 5 സെക്കൻഡിൽ ഡിലീറ്റ് ഷെഡ്യൂൾ ചെയ്യുകയും ചെയ്യുന്നു
+    grp_confirm_id = None
+    if is_group:
+        try:
+            btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
+            grp_confirm_msg = await message.reply_text(
+                f"✅ {user_name}, താങ്കൾ ആവശ്യപ്പെട്ട സിനിമയുടെ ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയച്ചിട്ടുണ്ട്!",
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
+            grp_confirm_id = grp_confirm_msg.id
+            asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, grp_confirm_id, delay=5))
+        except Exception as err:
+            logger.error(f"Group confirmation error: {err}")
+
+    # 4. ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയക്കുന്നു
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഫയലുകൾ ഇൻബോക്സിലേക്ക് അയക്കുന്നു
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -217,9 +227,9 @@ async def pm_group_movie_search(client, message):
         except Exception as e:
             logger.error(f"Send File Error: {e}")
 
-    # യൂസർ ബോട്ട് സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
+    # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ മുന്നറിയിപ്പ്
     if blocked_or_not_started:
-        if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        if is_group:
             btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
             warn_msg = await message.reply_text(
                 f"ഹലോ {user_name}, സിനിമ നിങ്ങളുടെ ഇൻബോക്സിലേക്ക് അയക്കാൻ താഴെ കാണുന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ബോട്ട് <b>Start</b> ചെയ്യുക!",
@@ -229,7 +239,7 @@ async def pm_group_movie_search(client, message):
             asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, warn_msg.id, delay=10))
         return
 
-    # 4. ഇൻബോക്സിലേക്ക് നന്ദി സന്ദേശം
+    # 5. ഇൻബോക്സിലേക്ക് താങ്ക്സ് മെസ്സേജ്
     if sent_count > 0:
         thanks_text = (
             f"🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
@@ -255,16 +265,6 @@ async def pm_group_movie_search(client, message):
         except Exception:
             pass
 
-    # 5. ഗ്രൂപ്പിൽ അലേർട്ടും 5 സെക്കൻഡിൽ ഓട്ടോ ഡിലീറ്റും
-    if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
-        btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
-        grp_confirm_msg = await message.reply_text(
-            f"✅ {user_name}, താങ്കൾ ആവശ്യപ്പെട്ട സിനിമയുടെ ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയച്ചിട്ടുണ്ട്!",
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
-        )
-        asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, grp_confirm_msg.id, delay=5))
-
     # ലോഗ് ചാനലിലേക്ക് വിവരങ്ങൾ അയക്കുന്നു
     if sent_count > 0:
         try:
@@ -287,7 +287,7 @@ async def pm_group_movie_search(client, message):
         except Exception:
             pass
 
-# Movie Request ബട്ടൺ ഹാൻഡ്‌‌ലർ
+# Movie Request ബട്ടൺ ഹാൻഡ്‌ലർ
 @Client.on_callback_query(filters.regex(r"^req_"))
 async def movie_request_handler(client, query):
     user = query.from_user
