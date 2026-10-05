@@ -1,19 +1,19 @@
 import logging
 import asyncio
-import json
 import urllib.parse
-import urllib.request
+import difflib
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant
-from database.ia_filterdb import get_search_results
+from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant, FloodWait, InputUserDeactivated
+from database.ia_filterdb import get_search_results, Media
+from database.users_chats_db import db
 from utils import temp
+from info import ADMINS
 
 logger = logging.getLogger(__name__)
 
 TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 
-# ഗ്രൂപ്പ് ഐഡിയും ഇൻവൈറ്റ് ലിങ്കും
 FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 
@@ -31,24 +31,25 @@ def get_readable_file_size(size_in_bytes):
     except Exception:
         return "N/A"
 
-def get_spelling_suggestion(query):
-    """ഗൂഗിൾ വഴി ശരിയായ സ്പെല്ലിംഗ് ഓട്ടോ-സജസ്റ്റ് ചെയ്യുന്നു"""
+async def get_db_spelling_suggestion(query):
+    """ഡാറ്റാബേസിൽ നിന്ന് ഏറ്റവും അനുയോജ്യമായ സിനിമയുടെ പേര് കണ്ടെത്തുന്നു"""
     try:
-        encoded_query = urllib.parse.quote(f"{query} movie")
-        url = f"https://suggestqueries.google.com/complete/search?client=chrome&q={encoded_query}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        req = urllib.request.Request(url, headers=headers)
+        first_char = query.strip()[0]
+        cursor = Media.find({"file_name": {"$regex": f"^{first_char}", "$options": "i"}}).limit(50)
+        file_list = await cursor.to_list(length=50)
         
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            if data and len(data) > 1 and data[1]:
-                # ആദ്യത്തെ സജഷനിൽ നിന്ന് 'movie' എന്ന വാക്ക് ഒഴിവാക്കി ശരിയായ പേര് എടുക്കുന്നു
-                first_suggestion = data[1][0]
-                clean_name = first_suggestion.lower().replace("movie", "").replace("film", "").strip().title()
-                if clean_name and clean_name.lower() != query.lower():
-                    return clean_name
+        movie_titles = []
+        for f in file_list:
+            name = f.get("file_name", "")
+            clean = name.replace(".", " ").replace("_", " ").split()[0:3]
+            movie_titles.append(" ".join(clean))
+            
+        if movie_titles:
+            matches = difflib.get_close_matches(query, movie_titles, n=1, cutoff=0.4)
+            if matches:
+                return matches[0]
     except Exception as e:
-        logger.warning(f"Spelling Suggestion Error: {e}")
+        logger.warning(f"Suggestion DB Error: {e}")
     return None
 
 async def is_subscribed(client, user_id):
@@ -68,7 +69,54 @@ async def is_subscribed(client, user_id):
         return True
     return False
 
-@Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
+@Client.on_message(filters.command("broadcast") & filters.user(ADMINS))
+async def admin_broadcast_handler(client, message):
+    """അഡ്മിന് എല്ലാ ബോട്ട് ഉപയോക്താക്കൾക്കും സന്ദേശങ്ങൾ അയക്കാനുള്ള സംവിധാനം"""
+    if not message.reply_to_message:
+        await message.reply_text("⚠ <b>ഉപയോഗിക്കേണ്ട വിധം:</b>\nഎല്ലാ യൂസർമാർക്കും അയക്കേണ്ട മെസ്സേജിന് റിപ്ലൈ ആയി <code>/broadcast</code> എന്ന് അയക്കുക.")
+        return
+
+    broadcast_msg = message.reply_to_message
+    status_msg = await message.reply_text("🚀 <b>ബ്രോഡ്കാസ്റ്റിംഗ് ആരംഭിക്കുന്നു...</b>\nദയവായി കാത്തിരിക്കുക.")
+
+    users_list = await db.get_all_users()
+    total_users = await db.total_users_count()
+
+    successful = 0
+    blocked = 0
+    deleted = 0
+    failed = 0
+
+    async for user in users_list:
+        user_id = user.get("id")
+        try:
+            await broadcast_msg.copy(chat_id=user_id)
+            successful += 1
+            await asyncio.sleep(0.3)
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            await broadcast_msg.copy(chat_id=user_id)
+            successful += 1
+        except UserIsBlocked:
+            await db.delete_user(user_id)
+            blocked += 1
+        except InputUserDeactivated:
+            await db.delete_user(user_id)
+            deleted += 1
+        except Exception:
+            failed += 1
+
+    report = (
+        f"✅ <b>ബ്രോഡ്കാസ്റ്റ് പൂർത്തിയായി!</b>\n\n"
+        f"👥 <b>ആകെ ഉപയോക്താക്കൾ:</b> <code>{total_users}</code>\n"
+        f"📬 <b>വിജയകരമായി അയച്ചത്:</b> <code>{successful}</code>\n"
+        f"🚫 <b>ബ്ലോക്ക് ചെയ്ത അക്കൗണ്ടുകൾ:</b> <code>{blocked}</code>\n"
+        f"❌ <b>ഡിലീറ്റ് ചെയ്ത അക്കൗണ്ടുകൾ:</b> <code>{deleted}</code>\n"
+        f"⚠️ <b>പരാജയപ്പെട്ടവ:</b> <code>{failed}</code>"
+    )
+    await status_msg.edit_text(report, parse_mode=enums.ParseMode.HTML)
+
+@Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template", "broadcast"]), group=-1)
 async def pm_group_movie_search(client, message):
     if not message.text or message.text.startswith(("/", "!", "#")):
         return
@@ -115,20 +163,22 @@ async def pm_group_movie_search(client, message):
         logger.error(f"Search Query Error: {e}")
         return
 
-    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ (Did You Mean സഹിതം)
+    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
     if not files:
         if chat_type == enums.ChatType.PRIVATE:
-            suggestion = await asyncio.to_thread(get_spelling_suggestion, query)
+            suggestion = await get_db_spelling_suggestion(query)
             buttons = []
 
-            # ശരിയായ സ്പെല്ലിംഗ് നിർദ്ദേശം ഉണ്ടെങ്കിൽ ഒരു ബട്ടൺ നൽകുന്നു
-            if suggestion:
+            # 64 bytes പരിധി മറികടക്കാൻ callback_data ചെറുതാക്കുന്നു
+            req_data = f"req_{query[:40]}"
+
+            if suggestion and suggestion.lower() != query.lower():
                 reply_text = (
                     f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
                     f"താങ്കൾ തിരഞ്ഞത്: <code>{query}</code>\n\n"
-                    f"🤔 <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് ഇതാനോ? (Did you mean):</b>\n"
+                    f"🤔 <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് ഇതാണോ? (Did you mean):</b>\n"
                     f"👉 <b>{suggestion}</b>\n\n"
-                    f"<i>താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ആ സിനിമ തിരയാവുന്നതാണ്.</i>"
+                    f"<i>താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് സിനിമ തിരയാവുന്നതാണ്. അല്ലെങ്കിൽ അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്യാം.</i>"
                 )
                 buttons.append([InlineKeyboardButton(f"🎬 Search: {suggestion}", switch_inline_query_current_chat=suggestion)])
             else:
@@ -139,10 +189,12 @@ async def pm_group_movie_search(client, message):
                     f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
                     f"💡 <b>Please check the spelling and send again.</b>\n"
                     f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
-                    f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
+                    f"👉 സിനിമ ലഭ്യമല്ലെങ്കിൽ താഴെയുള്ള ബട്ടൺ വഴി അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്യാം."
                 )
                 buttons.append([InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)])
 
+            # റിക്വസ്റ്റ് ബട്ടണും മെയിൻ ചാനൽ ബട്ടണും
+            buttons.append([InlineKeyboardButton("📩 Request to Admin / റിക്വസ്റ്റ് ചെയ്യുക", callback_data=req_data)])
             buttons.append([InlineKeyboardButton("📢 Main Channel / Updates", url=FORCE_SUB_INVITE_LINK)])
 
             try:
@@ -159,7 +211,7 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു (ക്ലീൻ ക്യാപ്ഷൻ)
+    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -235,6 +287,52 @@ async def pm_group_movie_search(client, message):
         except Exception as log_err:
             print(f"[LOG ERROR DETAILED]: {repr(log_err)}")
             logger.error(f"Channel Log Sending Failed: {log_err}")
+
+# Movie Request ബട്ടൺ ക്ലിക്ക് ചെയ്യുമ്പോൾ പ്രവർത്തിക്കുന്ന ഹാൻഡ്‌ലർ
+@Client.on_callback_query(filters.regex(r"^req_"))
+async def movie_request_handler(client, query):
+    user = query.from_user
+    movie_name = query.data.split("req_", 1)[1]
+
+    # ലോഗ് ചാനലിലേക്ക് റിക്വസ്റ്റ് അയക്കുന്നു
+    try:
+        user_link = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+        username_str = f"(@{user.username})" if user.username else ""
+        log_text = (
+            f"📩 <b>#MovieRequest</b>\n\n"
+            f"🎬 <b>Movie:</b> <code>{movie_name}</code>\n"
+            f"👤 <b>User:</b> {user_link} {username_str}\n"
+            f"🆔 <b>User ID:</b> <code>{user.id}</code>"
+        )
+        await client.send_message(
+            chat_id=TARGET_LOG_CHANNEL,
+            text=log_text,
+            parse_mode=enums.ParseMode.HTML
+        )
+    except Exception as e:
+        logger.error(f"Request Log Error: {e}")
+
+    # ഉപയോക്താവിന് പോപ്പ്-അപ്പ് അലേർട്ട് നൽകുന്നു
+    await query.answer("✅ താങ്കളുടെ റിക്വസ്റ്റ് അഡ്മിന് ലഭിച്ചിട്ടുണ്ട്! സിനിമ ഉടൻ അപ്‌ലോഡ് ചെയ്യുന്നതാണ്.", show_alert=True)
+
+    # ബട്ടൺ 'Requested' എന്ന് അപ്‌ഡേറ്റ് ചെയ്യുന്നു
+    try:
+        new_buttons = []
+        for row in query.message.reply_markup.inline_keyboard:
+            new_row = []
+            for btn in row:
+                if btn.callback_data and btn.callback_data.startswith("req_"):
+                    new_row.append(InlineKeyboardButton("✅ Requested / റിക്വസ്റ്റ് ചെയ്തു", callback_data="already_requested"))
+                else:
+                    new_row.append(btn)
+            new_buttons.append(new_row)
+        await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(new_buttons))
+    except Exception:
+        pass
+
+@Client.on_callback_query(filters.regex("^already_requested$"))
+async def already_requested_handler(client, query):
+    await query.answer("ഈ സിനിമ ഇതിനകം അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്തിട്ടുണ്ട്!", show_alert=False)
 
 # Help, About, Home ബട്ടണുകളുടെ Callback Query Handler
 @Client.on_callback_query(filters.regex("^(help|about|home)$"))
