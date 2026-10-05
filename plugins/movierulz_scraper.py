@@ -52,25 +52,44 @@ def clean_movie_title(raw_title):
     title = re.sub(r"\s+", " ", title).strip()
     return title, year
 
-def search_web_hd_poster(title, year, lang):
-    """വെബിൽ തിരഞ്ഞ് അൾട്രാ HD ക്വാളിറ്റി ഒറിജിനൽ പോസ്റ്റർ URL കണ്ടെത്തുന്നു"""
+def get_high_res_poster(clean_title, year="", lang=""):
+    """TMDB-il illenkil Bing search vazhi direct Ultra HD poster link edukkunnu"""
+    # 1. TMDB Original 4K Poster
     try:
-        query = f"{title} {year} {lang} movie poster hd high resolution"
-        search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        res = requests.get(search_url, headers=HEADERS, timeout=7)
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
+        if year:
+            params["primary_release_date_year"] = year
+        res = requests.get(url, params=params, timeout=6)
         if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for a in soup.find_all('a', class_='result__snippet'):
-                pass
+            results = res.json().get("results", [])
+            if results and results[0].get("poster_path"):
+                return f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
     except Exception as e:
-        print(f"[Web Search Fallback Error]: {e}")
+        print(f"[TMDB Poster Error]: {e}")
+
+    # 2. Bing High-Res Image Scraping Fallback
+    try:
+        query = f"{clean_title} {year} {lang} movie first look poster hd"
+        bing_url = f"https://www.bing.com/images/search?q={urllib.parse.quote(query)}&FORM=HDRSC2"
+        res = requests.get(bing_url, headers=HEADERS, timeout=6)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, "html.parser")
+            for a in soup.find_all("a", class_="iusc"):
+                m = a.get("m")
+                if m:
+                    match = re.search(r'"murl":"(https?://[^"]+)"', m)
+                    if match:
+                        img_link = match.group(1)
+                        if any(img_link.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png']):
+                            return img_link
+    except Exception as err:
+        print(f"[Bing Image Fetch Error]: {err}")
+
     return None
 
-def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
-    poster_url = None
+def get_trailer_url(clean_title, year="", lang="Movie"):
     trailer_url = None
-
-    # 1. TMDB-ൽ നിന്നുള്ള Original High-Res Poster
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
@@ -81,9 +100,6 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
             results = res.json().get("results", [])
             if results:
                 movie_id = results[0].get("id")
-                if results[0].get("poster_path"):
-                    poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
-
                 if movie_id:
                     v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
                     v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=6)
@@ -94,24 +110,13 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
                                 trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
                                 break
     except Exception as e:
-        print(f"[TMDB Details Error]: {e}")
-
-    # 2. TMDB-യിൽ പോസ്റ്റർ ഇല്ലെങ്കിൽ Bing/DuckDuckGo Engine വഴി HD കണ്ടെത്തൽ
-    if not poster_url:
-        try:
-            q = urllib.parse.quote(f"{clean_title} {year} {lang} movie official poster hd")
-            engine_url = f"https://api.duckduckgo.com/?q={q}&format=json"
-            r = requests.get(engine_url, headers=HEADERS, timeout=6).json()
-            if r.get("Image"):
-                poster_url = r.get("Image")
-        except:
-            pass
+        print(f"[Trailer Error]: {e}")
 
     if not trailer_url:
-        search_query = urllib.parse.quote(f"{clean_title} {year} {lang} movie official trailer")
+        search_query = urllib.parse.quote(f"{clean_title} {year} {lang} official trailer")
         trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
 
-    return poster_url, trailer_url
+    return trailer_url
 
 def fetch_movierulz_movies():
     categories = [
@@ -142,20 +147,12 @@ def fetch_movierulz_movies():
                 page_link = a_tag['href']
                 img_tag = item.find('img')
                 raw_poster = img_tag.get('src') if img_tag else None
-                
-                # വെബ്‌സൈറ്റിലെ തമ്പ്‌നെയിൽ സൈസ് ഒഴിവാക്കി ഒറിജിനൽ ഇമേജ് പാത്തിലേക്ക് മാറ്റുന്നു
-                clean_poster = None
-                if raw_poster:
-                    clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster)
-                    if not clean_poster.startswith("http"):
-                        clean_poster = "https:" + clean_poster
-
                 title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
 
                 movie_list.append({
                     "page_url": page_link,
                     "title": title.strip(),
-                    "poster": clean_poster,
+                    "fallback_poster": raw_poster,
                     "lang": cat["lang"]
                 })
         except Exception as e:
@@ -189,7 +186,7 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല.")
+            await status_msg.edit_text("❌ Cinemakal kandethan aayilla.")
         return
 
     posted_count = 0
@@ -201,15 +198,13 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
         clean_title, year = clean_movie_title(movie["title"])
         lang = movie.get("lang", "Movie")
 
-        hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year, lang)
-        
-        # ഏറ്റവും വ്യക്തതയുള്ള ഫോട്ടോ ലിങ്ക് തിരഞ്ഞെടുക്കുന്നു
-        final_img_url = hd_poster_url or movie.get("poster")
+        # High-res poster search
+        hd_poster = await loop.run_in_executor(None, get_high_res_poster, clean_title, year, lang)
+        final_img = hd_poster or movie.get("fallback_poster")
+        trailer_url = await loop.run_in_executor(None, get_trailer_url, clean_title, year, lang)
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
-        caption = (
-            f"🎬 <b>{movie['title']}</b>\n\n"
-        )
+        caption = f"🎬 <b>{movie['title']}</b>\n\n"
         if story:
             caption += f"📖 <b>Storyline :</b>\n<i>{story[:400]}...</i>\n\n"
 
@@ -228,10 +223,10 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
         button_markup = InlineKeyboardMarkup(buttons)
 
         try:
-            if final_img_url:
+            if final_img:
                 await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=final_img_url,
+                    photo=final_img,
                     caption=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
@@ -254,13 +249,13 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
 
     if status_msg:
         if posted_count > 0:
-            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ അൾട്രാ HD ക്വാളിറ്റിയിൽ അയച്ചു.")
+            await status_msg.edit_text(f"✅ Poorthiyayi! {posted_count} puthiya cinemakal Ultra HD posterode post cheythu.")
         else:
-            await status_msg.edit_text("ℹ️️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (ലിസ്റ്റിലുള്ള എല്ലാം ഇതിനകം ചാനലിൽ പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
+            await status_msg.edit_text("ℹ️ Puthiya cinemakal labhyamalla (ellam munpe post cheythathanu).")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റിയിൽ തിരയുന്നു...")
+    msg = await message.reply_text("🔍 Ultra HD posterukal search cheythu channelilekk ayakkunnu...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
