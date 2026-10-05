@@ -9,7 +9,8 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 
-TARGET_LOG_CHANNEL = -1003799495012
+# ചാനൽ യൂസർനെയിം നേരിട്ട് നൽകുന്നു
+TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 
 @Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
 async def pm_group_movie_search(client, message):
@@ -133,7 +134,7 @@ async def pm_group_movie_search(client, message):
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
-            print(f"[LOG SUCCESS] #FileSentToPM successfully sent to channel {TARGET_LOG_CHANNEL}")
+            print(f"[LOG SUCCESS] Sent log to {TARGET_LOG_CHANNEL}")
         except Exception as log_err:
             print(f"[LOG ERROR DETAILED]: {repr(log_err)}")
             logger.error(f"Channel Log Sending Failed: {log_err}")
