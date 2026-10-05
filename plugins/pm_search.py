@@ -30,16 +30,17 @@ def get_readable_file_size(size_in_bytes):
         return "N/A"
 
 async def auto_delete_group_pair(client, chat_id, user_msg_id, bot_msg_id=None, delay=5):
+    """5 സെക്കൻഡിൽ മെസ്സേജ് ഐഡി ഉപയോഗിച്ച് നേരിട്ട് ഗ്രൂപ്പിൽ നിന്ന് ഡിലീറ്റ് ചെയ്യുന്നു"""
     await asyncio.sleep(delay)
     try:
         if bot_msg_id:
             await client.delete_messages(chat_id=chat_id, message_ids=bot_msg_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Bot Msg Delete Error: {e}")
     try:
         await client.delete_messages(chat_id=chat_id, message_ids=user_msg_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"User Msg Delete Error: {e}")
 
 async def get_db_spelling_suggestion(query):
     try:
@@ -76,25 +77,26 @@ async def is_subscribed(client, user_id):
         return True
     return False
 
-# ഗ്രൂപ്പിലും PM-ലും വരുന്ന ടെക്സ്റ്റ് മെസ്സേജുകളെ നേരിട്ട് പിടിച്ചെടുക്കുന്നു
-@Client.on_message(filters.text)
+# group=-1 നൽകി ഏറ്റവും ഉയർന്ന മുൻഗണന നൽകുന്നു
+@Client.on_message(filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
 async def pm_group_movie_search(client, message):
     if not message.text:
         return
 
     text = message.text.strip()
-
-    # കമാൻഡുകൾ ഒഴിവാക്കുന്നു
     if text.startswith(("/", "!", "#")):
         return
 
     if len(text) < 2:
         return
 
+    # മറ്റ് എല്ലാ പ്ലഗിനുകളിലേക്കും ഈ മെസ്സേജ് പോകുന്നത് പൂർണ്ണമായി തടയുന്നു!
+    # ഇതോടെ പഴയ ഫയലുകളിൽ നിന്നുള്ള ഒരു 'Movie Not Found' മെസ്സേജും ഇനി ഗ്രൂപ്പിൽ വരില്ല.
+    message.stop_propagation()
+
     chat_type = message.chat.type
     user = message.from_user
 
-    # യൂസർ ഇല്ലാത്ത അനോണിമസ് മെസ്സേജ് ആണെങ്കിൽ ഒഴിവാക്കുന്നു
     if not user:
         return
 
@@ -182,7 +184,7 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയക്കുന്നു
+    # 3. ഫയലുകൾ ഇൻബോക്സിലേക്ക് അയക്കുന്നു
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -215,7 +217,7 @@ async def pm_group_movie_search(client, message):
         except Exception as e:
             logger.error(f"Send File Error: {e}")
 
-    # ബോട്ട് സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ മുന്നറിയിപ്പ്
+    # യൂസർ ബോട്ട് സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
         if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
             btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
@@ -227,7 +229,7 @@ async def pm_group_movie_search(client, message):
             asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, warn_msg.id, delay=10))
         return
 
-    # 4. ഇൻബോക്സിലേക്ക് താങ്ക്സ് മെസ്സേജ്
+    # 4. ഇൻബോക്സിലേക്ക് നന്ദി സന്ദേശം
     if sent_count > 0:
         thanks_text = (
             f"🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
@@ -285,7 +287,7 @@ async def pm_group_movie_search(client, message):
         except Exception:
             pass
 
-# Movie Request ബട്ടൺ ഹാൻഡ്‌ലർ
+# Movie Request ബട്ടൺ ഹാൻഡ്‌‌ലർ
 @Client.on_callback_query(filters.regex(r"^req_"))
 async def movie_request_handler(client, query):
     user = query.from_user
