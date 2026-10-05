@@ -9,7 +9,7 @@ from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS
 
 logger = logging.getLogger(__name__)
 
-@Client.on_message(filters.group & filters.text)
+@Client.on_message(filters.group & filters.text & filters.incoming, group=1)
 async def give_filter(client, message):
     if not message.text:
         return
@@ -31,33 +31,38 @@ async def give_filter(client, message):
     if AUTH_CHANNEL and not await is_subscribed(client, message):
         return
 
+    # ഫയൽ സെർച്ച്
     files, offset, total_results = await get_search_results(text, max_results=10)
 
+    # 1. ഫയലുകൾ ഉണ്ടെങ്കിൽ ലിസ്റ്റ് അയച്ച് പ്രോസസ്സ് ഇവിടെ വച്ച് അവസാനിപ്പിക്കുന്നു
+    if files:
+        btn = []
+        if settings.get("botpm"):
+            btn.append([InlineKeyboardButton("📥 View in PM / ഫയലുകൾ ഇൻബോക്സിൽ കാണുക", url=f"https://t.me/{temp.U_NAME}?start=search_{text}")])
+        else:
+            for file in files:
+                title = file.file_name
+                size = get_size(file.file_size)
+                f_caption = f"🎬 {title} [{size}]"
+                btn.append([InlineKeyboardButton(f_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+
+        await message.reply_text(
+            f"<b>Here is the result for:</b> <code>{text}</code>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return  # ഫയലുകൾ കിട്ടിയാൽ ഇവിടെ വച്ച് പൂർണ്ണമായി നിർത്തുന്നു!
+
+    # 2. ഫയലുകൾ ഇല്ലാത്തപ്പോൾ മാത്രം സ്പെൽ ചെക്ക്
     if not files:
         if settings.get("spell_check", True):
             btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
             await message.reply_text(
-                f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-                f"Hey {message.from_user.mention},\n"
-                f"📌 <b>You Searched :</b> <code>{text}</code>\n\n"
-                f"💡 Please check the spelling and send again.",
+                f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                f"ഹലോ {message.from_user.mention},\n"
+                f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് :</b> <code>{text}</code>\n\n"
+                f"💡 ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.",
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
         return
-
-    btn = []
-    if settings.get("botpm"):
-        btn.append([InlineKeyboardButton("📥 View in PM / ഫയലുകൾ ഇൻബോക്സിൽ കാണുക", url=f"https://t.me/{temp.U_NAME}?start=search_{text}")])
-    else:
-        for file in files:
-            title = file.file_name
-            size = get_size(file.file_size)
-            f_caption = f"🎬 {title} [{size}]"
-            btn.append([InlineKeyboardButton(f_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
-
-    await message.reply_text(
-        f"<b>Here is the result for:</b> <code>{text}</code>",
-        reply_markup=InlineKeyboardMarkup(btn),
-        parse_mode=enums.ParseMode.HTML
-    )
