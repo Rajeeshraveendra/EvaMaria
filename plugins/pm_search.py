@@ -47,8 +47,8 @@ async def pm_group_movie_search(client, message):
     user_name = message.from_user.mention
     chat_type = message.chat.type
 
-    # 1. FORCE SUBSCRIBE പരിശോധന (ടെസ്റ്റിംഗിനായി False നൽകിയിരിക്കുന്നു)
-    subscribed = False
+    # 1. FORCE SUBSCRIBE പരിശോധിക്കുന്നു (Live Mode)
+    subscribed = await is_subscribed(client, user_id)
 
     if not subscribed:
         btn = [
