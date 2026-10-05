@@ -194,11 +194,17 @@ async def cb_help_about_handler(client, query):
             f"ℹ <b>സഹായം / Help Guide</b>\n\n"
             f"ഹലോ {user_name},\n\n"
             f"1. സിനിമ ലഭിക്കാൻ സിനിമയുടെ പേര് കൃത്യമായ സ്പെല്ലിംഗിൽ അയക്കുക.\n"
-            f"2. ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യുന്നതിന് മുൻപ് ഞങ്ങളുടെ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിരിക്കണം.\n"
-            f"3. എന്തെങ്കിലും സംശയങ്ങളുണ്ടെങ്കിൽ അഡ്മിനുമായി ബന്ധപ്പെടുക."
+            f"2. ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യുന്നതിന് മുൻപ് ഞങ്ങളുടെ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിരിക്കണം.\n\n"
+            f"📞 <b>Admin Contact / ബന്ധപ്പെടാൻ:</b>\n"
+            f"👤 <b>Admin :</b> Rajeesh Raveendra Kamballur\n"
+            f"📱 <b>Phone :</b> <code>+971562769519</code>\n"
+            f"💬 എന്തെങ്കിലും സംശയങ്ങളോ സഹായമോ ആവശ്യമുണ്ടെങ്കിൽ നേരിട്ട് ബന്ധപ്പെടാം."
         )
         buttons = [
-            [InlineKeyboardButton("📢 Main Group", url=FORCE_SUB_INVITE_LINK)],
+            [
+                InlineKeyboardButton("💬 WhatsApp Admin", url="https://wa.me/971562769519"),
+                InlineKeyboardButton("📢 Main Group", url=FORCE_SUB_INVITE_LINK)
+            ],
             [InlineKeyboardButton("🔙 Back / പിന്നോട്ട്", callback_data="home")]
         ]
         if query.message.photo:
@@ -219,13 +225,17 @@ async def cb_help_about_handler(client, query):
             f"🤖 <b>About Bot / ബോട്ടിനെക്കുറിച്ച്</b>\n\n"
             f"⚡ <b>Bot Name :</b> RRK Movies AutoBot\n"
             f"👤 <b>Created By :</b> Rajeesh Raveendra Kamballur\n"
+            f"📱 <b>Contact :</b> <code>+971562769519</code>\n"
             f"🎬 <b>Channel :</b> @RRK_Movies\n"
             f"🛠 <b>Language :</b> Python 3\n"
             f"📦 <b>Database :</b> MongoDB\n\n"
             f"<i>HD സിനിമകൾ വേഗത്തിൽ ലഭ്യമാക്കാൻ നിർമ്മിച്ചത്.</i>"
         )
         buttons = [
-            [InlineKeyboardButton("📢 Join Channel", url=FORCE_SUB_INVITE_LINK)],
+            [
+                InlineKeyboardButton("💬 WhatsApp Admin", url="https://wa.me/971562769519"),
+                InlineKeyboardButton("📢 Join Channel", url=FORCE_SUB_INVITE_LINK)
+            ],
             [InlineKeyboardButton("🔙 Back / പിന്നോട്ട്", callback_data="home")]
         ]
         if query.message.photo:
