@@ -12,7 +12,7 @@ UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 GROUP_NAME = "RRK Movies Group"
 
-POSTED_LINKS = set()
+HISTORY_FILE = "posted_ott_movies.txt"
 TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
 
 HEADERS = {
@@ -20,242 +20,192 @@ HEADERS = {
     'Accept-Language': 'en-US,en;q=0.9',
 }
 
+def load_posted_ott():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return set(line.strip().lower() for line in f if line.strip())
+    return set()
+
+def save_posted_ott(title):
+    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{title.strip().lower()}\n")
+
 def is_sleep_time():
-    """UAE (UTC+4) & India (UTC+5:30) samayangalil 10 PM to 7 AM sleep mode aakkunnu"""
+    """UAE & India time 10 PM to 7 AM sleep mode"""
     now_utc = datetime.now(timezone.utc)
     gst_hour = (now_utc + timedelta(hours=4)).hour
     ist_hour = (now_utc + timedelta(hours=5, minutes=30)).hour
-
-    # Randil ethenkilum 10 PM kazhiyukayo 7 AM aakathirikkayo cheythal sleep mode
-    if (gst_hour >= 22 or gst_hour < 7) or (ist_hour >= 22 or ist_hour < 7):
-        return True
-    return False
+    return (gst_hour >= 22 or gst_hour < 7) or (ist_hour >= 22 or ist_hour < 7)
 
 def clean_movie_title(raw_title):
-    year_match = re.search(r'\b(20\d\d|19\d\d)\b', raw_title)
-    year = year_match.group(1) if year_match else ""
-
     title = re.sub(r"\(.*?\)|\[.*?\]", "", raw_title)
-    tags = [
-        "malayalam", "tamil", "telugu", "hindi", "kannada", "english",
-        "full movie", "watch online", "free", "download", "hdrip", "dvdrip", 
-        "hd", "hq", "predvd", "pre-dvd", "proper", "true", "web-dl", "esub"
-    ]
-    for tag in tags:
-        title = re.sub(rf"\b{tag}\b", "", title, flags=re.IGNORECASE)
-
     title = re.sub(r"[^a-zA-Z0-9\s]", " ", title)
-    title = re.sub(r"\s+", " ", title).strip()
-    return title, year
+    return re.sub(r"\s+", " ", title).strip()
 
-def get_movie_meta_and_trailer(clean_title, year=""):
+def get_ott_details_tmdb(clean_title):
     poster_url = None
     trailer_url = None
+    overview = None
+
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
-        if year:
-            params["primary_release_date_year"] = year
-        res = requests.get(url, params=params, timeout=8)
+        res = requests.get(url, params=params, timeout=10)
         if res.status_code == 200:
             results = res.json().get("results", [])
             if results:
-                movie_id = results[0].get("id")
-                if results[0].get("poster_path"):
-                    poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
+                m = results[0]
+                movie_id = m.get("id")
+                overview = m.get("overview")
+                if m.get("poster_path"):
+                    poster_url = f"https://image.tmdb.org/t/p/original{m['poster_path']}"
 
                 if movie_id:
                     v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
                     v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=8)
                     if v_res.status_code == 200:
-                        videos = v_res.json().get("results", [])
-                        for v in videos:
+                        for v in v_res.json().get("results", []):
                             if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
                                 trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
                                 break
     except Exception as e:
-        print(f"[TMDB Details Error]: {e}")
+        print(f"[TMDB OTT Error]: {e}")
 
     if not trailer_url:
-        search_query = urllib.parse.quote(f"{clean_title} {year} malayalam movie official trailer")
-        trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
+        q = urllib.parse.quote(f"{clean_title} malayalam movie trailer")
+        trailer_url = f"https://www.youtube.com/results?search_query={q}"
 
-    if not poster_url:
+    return poster_url, trailer_url, overview
+
+def fetch_latest_ott_list():
+    """Nowrunning വഴി ഏറ്റവും പുതിയ മലയാളം OTT ലിസ്റ്റ് എടുക്കുന്നു"""
+    url = "https://www.nowrunning.com/malayalam-streaming-guide/"
+    items = []
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=15)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            for a in soup.find_all('a'):
+                href = a.get('href', '')
+                text = a.get_text().strip()
+                if '/movie/' in href and len(text) > 3 and not any(x in text.lower() for x in ['review', 'trailer', 'news', 'photos']):
+                    if text not in [i['title'] for i in items]:
+                        items.append({"title": text, "platform": "Digital OTT"})
+    except Exception as e:
+        print(f"[NowRunning Error]: {e}")
+
+    # സൈറ്റ് കിട്ടിയില്ലെങ്കിൽ ബാക്കപ്പ് TMDB Malayalam Releases
+    if not items:
         try:
-            query = f"{clean_title} {year} malayalam movie poster hd"
-            search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
-            r = requests.get(search_url, headers=HEADERS, timeout=8)
+            tmdb_url = "https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": TMDB_API_KEY,
+                "with_original_language": "ml",
+                "sort_by": "primary_release_date.desc",
+                "vote_count.gte": 1
+            }
+            r = requests.get(tmdb_url, params=params, timeout=10)
             if r.status_code == 200:
-                links = re.findall(r'img_url=(https?[^&]+)', r.text)
-                for link in links:
-                    unquoted = urllib.parse.unquote(link)
-                    if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
-                        poster_url = unquoted
-                        break
+                for m in r.json().get("results", [])[:6]:
+                    items.append({"title": m.get("title"), "platform": "OTT Release"})
         except Exception as e:
-            print(f"[Poster Search Error]: {e}")
+            print(f"[TMDB Discover Error]: {e}")
 
-    return poster_url, trailer_url
+    return items[:6]
 
-def download_image_clean(url, filepath):
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=12)
-        if res.status_code == 200 and len(res.content) > 30000:
-            with open(filepath, 'wb') as f:
-                f.write(res.content)
-            return filepath
-    except Exception as e:
-        print(f"[Image Download Error]: {e}")
-    return None
-
-def fetch_movierulz_movies():
-    url = "https://www.5movierulz.works/category/malayalam-featured"
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
-        if response.status_code != 200:
-            return []
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-        items = soup.find_all('div', class_='boxed film')
-        if not items:
-            items = soup.select('.content ul li') or soup.find_all('div', class_='item')
-
-        movie_list = []
-        for item in items[:5]:
-            a_tag = item.find('a')
-            if not a_tag or not a_tag.get('href'):
-                continue
-
-            page_link = a_tag['href']
-            img_tag = item.find('img')
-            raw_poster = img_tag.get('src') if img_tag else None
-            clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster) if raw_poster else None
-            title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
-
-            movie_list.append({
-                "page_url": page_link,
-                "title": title.strip(),
-                "poster": clean_poster
-            })
-        return movie_list
-    except Exception as e:
-        print(f"[Scraper] Listing Error: {e}")
-        return []
-
-def fetch_movie_story(page_url):
-    try:
-        response = requests.get(page_url, headers=HEADERS, timeout=12)
-        if response.status_code != 200:
-            return None
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-        for p in soup.find_all('p'):
-            text = p.get_text().strip()
-            if len(text) > 80 and not text.lower().startswith(("download", "watch", "torrent")):
-                return text
-        return None
-    except Exception as e:
-        print(f"[Scraper] Detail Error: {e}")
-        return None
-
-async def run_scraper_process(client: Client, status_msg=None, force=False):
+async def run_ott_scraper(client: Client, status_msg=None, force=False):
     if not force and is_sleep_time():
-        print("[Movierulz Scraper] Sleep mode active. Skipping automatic post.")
+        print("[OTT] Sleep mode active.")
         return
 
+    posted_set = load_posted_ott()
     loop = asyncio.get_event_loop()
-    movies = await loop.run_in_executor(None, fetch_movierulz_movies)
-    
+    movies = await loop.run_in_executor(None, fetch_latest_ott_list)
+
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ Cinemakal onnum kandethaanayilla.")
+            await status_msg.edit_text("❌ OTT സിനിമകൾ കണ്ടെത്താനായില്ല.")
         return
 
-    posted_count = 0
-    for movie in reversed(movies):
-        link = movie["page_url"]
-        if link in POSTED_LINKS:
+    posted = 0
+    for item in movies:
+        clean_name = clean_movie_title(item['title'])
+        if not clean_name:
             continue
 
-        clean_title, year = clean_movie_title(movie["title"])
+        if not force and clean_name.lower() in posted_set:
+            continue
 
-        hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year)
-        final_img_url = hd_poster_url or movie.get("poster")
-        story = await loop.run_in_executor(None, fetch_movie_story, link)
+        poster_url, trailer_url, story = await loop.run_in_executor(None, get_ott_details_tmdb, clean_name)
 
         caption = (
-            f"🎬 <b>{movie['title']}</b>\n\n"
+            f"📢 <b>UPCOMING / NEW OTT RELEASE</b> 🎬\n\n"
+            f"🎞 <b>Movie :</b> {item['title']}\n"
+            f"📺 <b>Platform :</b> <b>{item.get('platform', 'Digital OTT')}</b>\n"
+            f"🗣 <b>Audio :</b> Malayalam\n"
+            f"🗓 <b>Status :</b> Streaming Soon / Out Now\n\n"
         )
         if story:
-            caption += f"📖 <b>Storyline :</b>\n<i>{story[:500]}...</i>\n\n"
+            caption += f"📖 <b>Storyline :</b>\n<i>{story[:300]}...</i>\n\n"
 
         caption += (
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 <b>New Malayalam Release Added</b> ✅\n"
+            f"📌 <b>OTT Update Added</b> ✅\n"
             f"💬 <b>Discussion Group :</b> <a href='{GROUP_LINK}'>{GROUP_NAME}</a>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
 
         buttons = [
-            [InlineKeyboardButton("📥 Download Movie Files 📥", switch_inline_query_current_chat=clean_title)],
+            [InlineKeyboardButton("🔍 Search Movie", switch_inline_query_current_chat=clean_name)],
             [InlineKeyboardButton("🎬 Watch Official Trailer 🍿", url=trailer_url)],
             [InlineKeyboardButton("👥 Join Discussion Group 👥", url=GROUP_LINK)]
         ]
         button_markup = InlineKeyboardMarkup(buttons)
 
-        downloaded_file = None
-        if final_img_url:
-            downloaded_file = await loop.run_in_executor(None, download_image_clean, final_img_url, f"poster_{posted_count}.jpg")
-
         try:
-            if downloaded_file and os.path.exists(downloaded_file):
+            if poster_url:
                 await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=downloaded_file,
+                    photo=poster_url,
                     caption=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
                     disable_notification=True
                 )
-                try:
-                    os.remove(downloaded_file)
-                except:
-                    pass
-            elif final_img_url:
-                await client.send_photo(
+            else:
+                await client.send_message(
                     chat_id=UPDATE_CHANNEL,
-                    photo=final_img_url,
-                    caption=caption,
+                    text=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
                     disable_notification=True
                 )
-            posted_count += 1
-            POSTED_LINKS.add(link)
+            posted += 1
+            save_posted_ott(clean_name)
+            posted_set.add(clean_name.lower())
             await asyncio.sleep(4)
-        except Exception as send_err:
-            print(f"[Scraper] Send Error: {send_err}")
+        except Exception as err:
+            print(f"[OTT Send Error]: {err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ Poorthiyaayi! {posted_count} postukal ayachu.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ OTT അപ്‌ഡേറ്റുകൾ ചാനലിലേക്ക് അയച്ചു.")
 
-@Client.on_message(filters.command("scrape") & filters.private)
-async def manual_scrape_cmd(client: Client, message):
-    POSTED_LINKS.clear()
-    msg = await message.reply_text("🔍 Manual scrape run cheyyunnu...")
-    await run_scraper_process(client, msg, force=True)
+@Client.on_message(filters.command("ott") & filters.private)
+async def manual_ott_cmd(client: Client, message):
+    msg = await message.reply_text("🔍 പുതിയ OTT റിലീസുകൾ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    await run_ott_scraper(client, msg, force=True)
 
-async def auto_loop(client: Client):
-    await asyncio.sleep(30)
+async def auto_ott_loop(client: Client):
+    await asyncio.sleep(60)
     while True:
         try:
-            await run_scraper_process(client)
+            await run_ott_scraper(client)
         except Exception as e:
-            print(f"[Scraper] Loop Error: {e}")
-        await asyncio.sleep(1200)
+            print(f"[OTT Loop Error]: {e}")
+        await asyncio.sleep(7200)
 
-@Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-1)
-async def start_loop_trigger(client: Client, message):
-    if not hasattr(client, "_scraper_loop_started"):
-        client._scraper_loop_started = True
-        asyncio.create_task(auto_loop(client))
+@Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-2)
+async def start_ott_loop_trigger(client: Client, message):
+    if not hasattr(client, "_ott_loop_started"):
+        client._ott_loop_started = True
+        asyncio.create_task(auto_ott_loop(client))
