@@ -67,6 +67,7 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
             results = res.json().get("results", [])
             if results:
                 movie_id = results[0].get("id")
+                # ഉയർന്ന റെസലൂഷനുള്ള ഒറിജിനൽ പോസ്റ്റർ
                 if results[0].get("poster_path"):
                     poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
 
@@ -87,17 +88,6 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
         trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
 
     return poster_url, trailer_url
-
-def download_image_clean(url, filepath):
-    try:
-        res = requests.get(url, headers=HEADERS, timeout=12)
-        if res.status_code == 200 and len(res.content) > 30000:
-            with open(filepath, 'wb') as f:
-                f.write(res.content)
-            return filepath
-    except Exception as e:
-        print(f"[Image Download Error]: {e}")
-    return None
 
 def fetch_movierulz_movies():
     categories = [
@@ -160,7 +150,6 @@ def fetch_movie_story(page_url):
 
 async def run_scraper_process(client: Client, status_msg=None, force=False):
     if not force and is_sleep_time():
-        print("[Movierulz Scraper] Sleep mode active. Skipping automatic post.")
         return
 
     posted_links = load_posted_links()
@@ -175,13 +164,14 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
     posted_count = 0
     for movie in reversed(movies):
         link = movie["page_url"]
-        if link in posted_links:
+        if not force and link in posted_links:
             continue
 
         clean_title, year = clean_movie_title(movie["title"])
         lang = movie.get("lang", "Movie")
 
         hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year, lang)
+        # TMDB ഒറിജിനൽ ഹൈ-റെസലൂഷൻ പോസ്റ്ററിന് മുൻഗണന നൽകുന്നു
         final_img_url = hd_poster_url or movie.get("poster")
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
@@ -205,29 +195,21 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
         ]
         button_markup = InlineKeyboardMarkup(buttons)
 
-        downloaded_file = None
-        if final_img_url:
-            downloaded_file = await loop.run_in_executor(None, download_image_clean, final_img_url, f"poster_{posted_count}.jpg")
-
         try:
-            if downloaded_file and os.path.exists(downloaded_file):
+            if final_img_url:
+                # നേരിട്ട് ക്ലൗഡ് ഹൈ-ക്വാളിറ്റി URL വഴി അയക്കുന്നു
                 await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=downloaded_file,
+                    photo=final_img_url,
                     caption=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
                     disable_notification=True
                 )
-                try:
-                    os.remove(downloaded_file)
-                except:
-                    pass
-            elif final_img_url:
-                await client.send_photo(
+            else:
+                await client.send_message(
                     chat_id=UPDATE_CHANNEL,
-                    photo=final_img_url,
-                    caption=caption,
+                    text=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
                     disable_notification=True
@@ -242,9 +224,10 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
     if status_msg:
         await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ചാനലിലേക്ക് അയച്ചു.")
 
-@Client.on_message(filters.command("scrape") & filters.private)
+@Client.on_message(filters.command(["scrape"]) & filters.private, group=-5)
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ സ്ക്രാപ്പ് ചെയ്യുന്നു...")
+    message.stop_propagation()
+    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റി പോസ്റ്ററുകളോടെ സ്ക്രാപ്പ് ചെയ്യുന്നു...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
