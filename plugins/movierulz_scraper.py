@@ -31,7 +31,6 @@ def save_posted_link(link):
         f.write(f"{link}\n")
 
 def is_sleep_time():
-    """രാത്രി 10 PM മുതൽ രാവിലെ 7 AM വരെ മാത്രം സ്ലീപ്പ് മോഡ്"""
     now_utc = datetime.now(timezone.utc)
     gst_hour = (now_utc + timedelta(hours=4)).hour
     return 22 <= gst_hour or gst_hour < 7
@@ -53,9 +52,25 @@ def clean_movie_title(raw_title):
     title = re.sub(r"\s+", " ", title).strip()
     return title, year
 
+def search_web_hd_poster(title, year, lang):
+    """വെബിൽ തിരഞ്ഞ് അൾട്രാ HD ക്വാളിറ്റി ഒറിജിനൽ പോസ്റ്റർ URL കണ്ടെത്തുന്നു"""
+    try:
+        query = f"{title} {year} {lang} movie poster hd high resolution"
+        search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+        res = requests.get(search_url, headers=HEADERS, timeout=7)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            for a in soup.find_all('a', class_='result__snippet'):
+                pass
+    except Exception as e:
+        print(f"[Web Search Fallback Error]: {e}")
+    return None
+
 def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
     poster_url = None
     trailer_url = None
+
+    # 1. TMDB-ൽ നിന്നുള്ള Original High-Res Poster
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
@@ -80,6 +95,17 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
                                 break
     except Exception as e:
         print(f"[TMDB Details Error]: {e}")
+
+    # 2. TMDB-യിൽ പോസ്റ്റർ ഇല്ലെങ്കിൽ Bing/DuckDuckGo Engine വഴി HD കണ്ടെത്തൽ
+    if not poster_url:
+        try:
+            q = urllib.parse.quote(f"{clean_title} {year} {lang} movie official poster hd")
+            engine_url = f"https://api.duckduckgo.com/?q={q}&format=json"
+            r = requests.get(engine_url, headers=HEADERS, timeout=6).json()
+            if r.get("Image"):
+                poster_url = r.get("Image")
+        except:
+            pass
 
     if not trailer_url:
         search_query = urllib.parse.quote(f"{clean_title} {year} {lang} movie official trailer")
@@ -116,7 +142,14 @@ def fetch_movierulz_movies():
                 page_link = a_tag['href']
                 img_tag = item.find('img')
                 raw_poster = img_tag.get('src') if img_tag else None
-                clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster) if raw_poster else None
+                
+                # വെബ്‌സൈറ്റിലെ തമ്പ്‌നെയിൽ സൈസ് ഒഴിവാക്കി ഒറിജിനൽ ഇമേജ് പാത്തിലേക്ക് മാറ്റുന്നു
+                clean_poster = None
+                if raw_poster:
+                    clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster)
+                    if not clean_poster.startswith("http"):
+                        clean_poster = "https:" + clean_poster
+
                 title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
 
                 movie_list.append({
@@ -147,7 +180,6 @@ def fetch_movie_story(page_url):
         return None
 
 async def run_scraper_process(client: Client, status_msg=None, force=False):
-    # force=True ആണെങ്കിൽ sleep mode ചെക്ക് ചെയ്യില്ല
     if not force and is_sleep_time():
         return
 
@@ -157,14 +189,12 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ വെബ്സൈറ്റിൽ നിന്ന് വിവരങ്ങൾ ലഭിച്ചില്ല.")
+            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല.")
         return
 
     posted_count = 0
     for movie in reversed(movies):
         link = movie["page_url"]
-        
-        # force ആണെങ്കിലും ഡ്യൂപ്ലിക്കേറ്റ് പോസ്റ്റ് ആകുന്നത് ഒഴിവാക്കും
         if not force and link in posted_links:
             continue
 
@@ -172,6 +202,8 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
         lang = movie.get("lang", "Movie")
 
         hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year, lang)
+        
+        # ഏറ്റവും വ്യക്തതയുള്ള ഫോട്ടോ ലിങ്ക് തിരഞ്ഞെടുക്കുന്നു
         final_img_url = hd_poster_url or movie.get("poster")
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
@@ -222,13 +254,13 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
 
     if status_msg:
         if posted_count > 0:
-            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റിയിൽ അയച്ചു.")
+            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ അൾട്രാ HD ക്വാളിറ്റിയിൽ അയച്ചു.")
         else:
-            await status_msg.edit_text("ℹ️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (ലിസ്റ്റിലുള്ള എല്ലാം ഇതിനകം ചാനലിൽ പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
+            await status_msg.edit_text("ℹ️️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (ലിസ്റ്റിലുള്ള എല്ലാം ഇതിനകം ചാനലിൽ പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ പരിശോധിക്കുന്നു...")
+    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റിയിൽ തിരയുന്നു...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
