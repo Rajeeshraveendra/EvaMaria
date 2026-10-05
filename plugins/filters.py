@@ -9,8 +9,7 @@ from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS
 
 logger = logging.getLogger(__name__)
 
-# group=-1 നൽകി ഏറ്റവും ഉയർന്ന മുൻഗണന ഉറപ്പാക്കുന്നു
-@Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
+@Client.on_message(filters.group & filters.text)
 async def give_filter(client, message):
     if not message.text:
         return
@@ -21,10 +20,6 @@ async def give_filter(client, message):
 
     if len(text) < 2:
         return
-
-    # മറ്റ് പഴയ ഫയലുകളിലേക്ക് ഈ മെസ്സേജ് പോകുന്നത് ഇവിടെവച്ച് പൂർണ്ണമായി തടയുന്നു!
-    # ഇതോടെ '@AM_ROBOTS' ഫോൾഡറിൽ നിന്നുള്ള 'Movie Not Found' മെസ്സേജ് ഗ്രൂപ്പിൽ വരില്ല.
-    message.stop_propagation()
 
     userid = message.from_user.id if message.from_user else None
     if not userid:
@@ -38,7 +33,6 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # സിനിമ ലഭ്യമല്ലെങ്കിൽ മാത്രം സ്പെല്ലിംഗ് ചെക്ക്
     if not files:
         if settings.get("spell_check", True):
             btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
@@ -53,7 +47,6 @@ async def give_filter(client, message):
         return
 
     btn = []
-    # ഗ്രൂപ്പിലെ 'Bot PM' സെറ്റിംഗ്സ് നോക്കുന്നു
     if settings.get("botpm"):
         btn.append([InlineKeyboardButton("📥 View in PM / ഫയലുകൾ ഇൻബോക്സിൽ കാണുക", url=f"https://t.me/{temp.U_NAME}?start=search_{text}")])
     else:
