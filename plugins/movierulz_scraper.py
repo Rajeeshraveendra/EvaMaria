@@ -54,7 +54,7 @@ def clean_movie_title(raw_title):
     title = re.sub(r"\s+", " ", title).strip()
     return title, year
 
-def get_movie_meta_and_trailer(clean_title, year=""):
+def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
     poster_url = None
     trailer_url = None
     try:
@@ -83,23 +83,8 @@ def get_movie_meta_and_trailer(clean_title, year=""):
         print(f"[TMDB Details Error]: {e}")
 
     if not trailer_url:
-        search_query = urllib.parse.quote(f"{clean_title} {year} malayalam movie official trailer")
+        search_query = urllib.parse.quote(f"{clean_title} {year} {lang} movie official trailer")
         trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
-
-    if not poster_url:
-        try:
-            query = f"{clean_title} {year} malayalam movie poster hd"
-            search_url = f"https://yandex.com/images/search?text={urllib.parse.quote(query)}"
-            r = requests.get(search_url, headers=HEADERS, timeout=8)
-            if r.status_code == 200:
-                links = re.findall(r'img_url=(https?[^&]+)', r.text)
-                for link in links:
-                    unquoted = urllib.parse.unquote(link)
-                    if any(ext in unquoted.lower() for ext in ['.jpg', '.jpeg', '.png']):
-                        poster_url = unquoted
-                        break
-        except Exception as e:
-            print(f"[Poster Search Error]: {e}")
 
     return poster_url, trailer_url
 
@@ -115,38 +100,47 @@ def download_image_clean(url, filepath):
     return None
 
 def fetch_movierulz_movies():
-    url = "https://www.5movierulz.works/category/malayalam-featured"
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
-        if response.status_code != 200:
-            return []
+    categories = [
+        {"url": "https://www.5movierulz.works/category/malayalam-featured", "lang": "Malayalam"},
+        {"url": "https://www.5movierulz.works/category/tamil-featured", "lang": "Tamil"},
+        {"url": "https://www.5movierulz.works/category/telugu-featured", "lang": "Telugu"},
+        {"url": "https://www.5movierulz.works/category/bollywood-featured", "lang": "Hindi"},
+        {"url": "https://www.5movierulz.works/category/hollywood-movie-free", "lang": "English"}
+    ]
+    movie_list = []
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        items = soup.find_all('div', class_='boxed film')
-        if not items:
-            items = soup.select('.content ul li') or soup.find_all('div', class_='item')
-
-        movie_list = []
-        for item in items[:5]:
-            a_tag = item.find('a')
-            if not a_tag or not a_tag.get('href'):
+    for cat in categories:
+        try:
+            response = requests.get(cat["url"], headers=HEADERS, timeout=15)
+            if response.status_code != 200:
                 continue
 
-            page_link = a_tag['href']
-            img_tag = item.find('img')
-            raw_poster = img_tag.get('src') if img_tag else None
-            clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster) if raw_poster else None
-            title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
+            soup = BeautifulSoup(response.text, 'html.parser')
+            items = soup.find_all('div', class_='boxed film')
+            if not items:
+                items = soup.select('.content ul li') or soup.find_all('div', class_='item')
 
-            movie_list.append({
-                "page_url": page_link,
-                "title": title.strip(),
-                "poster": clean_poster
-            })
-        return movie_list
-    except Exception as e:
-        print(f"[Scraper] Listing Error: {e}")
-        return []
+            for item in items[:2]:
+                a_tag = item.find('a')
+                if not a_tag or not a_tag.get('href'):
+                    continue
+
+                page_link = a_tag['href']
+                img_tag = item.find('img')
+                raw_poster = img_tag.get('src') if img_tag else None
+                clean_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster) if raw_poster else None
+                title = a_tag.get('title') or (img_tag.get('alt') if img_tag else "New Movie")
+
+                movie_list.append({
+                    "page_url": page_link,
+                    "title": title.strip(),
+                    "poster": clean_poster,
+                    "lang": cat["lang"]
+                })
+        except Exception as e:
+            print(f"[Scraper] Error in {cat['lang']}: {e}")
+
+    return movie_list
 
 def fetch_movie_story(page_url):
     try:
@@ -185,8 +179,9 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
             continue
 
         clean_title, year = clean_movie_title(movie["title"])
+        lang = movie.get("lang", "Movie")
 
-        hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year)
+        hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year, lang)
         final_img_url = hd_poster_url or movie.get("poster")
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
@@ -194,11 +189,11 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
             f"🎬 <b>{movie['title']}</b>\n\n"
         )
         if story:
-            caption += f"📖 <b>Storyline :</b>\n<i>{story[:500]}...</i>\n\n"
+            caption += f"📖 <b>Storyline :</b>\n<i>{story[:400]}...</i>\n\n"
 
         caption += (
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 <b>New Malayalam Release Added</b> ✅\n"
+            f"📌 <b>New {lang} Release Added</b> ✅\n"
             f"💬 <b>Discussion Group :</b> <a href='{GROUP_LINK}'>{GROUP_NAME}</a>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
@@ -245,11 +240,11 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പോസ്റ്റുകൾ അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ചാനലിലേക്ക് അയച്ചു.")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 മാനുവൽ സ്ക്രാപ്പ് റൺ ചെയ്യുന്നു...")
+    msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ സ്ക്രാപ്പ് ചെയ്യുന്നു...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
@@ -261,7 +256,7 @@ async def auto_loop(client: Client):
             print(f"[Scraper] Loop Error: {e}")
         await asyncio.sleep(1200)
 
-@Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-1)
+@Client.on_message(filters.command("start") & filters.private)
 async def start_loop_trigger(client: Client, message):
     if not hasattr(client, "_scraper_loop_started"):
         client._scraper_loop_started = True
