@@ -44,7 +44,7 @@ async def save_group(bot, message):
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_text(
-            text=f"<b>Thankyou For Adding Me In {message.chat.title} ❣️\n\nIf you have any questions & doubts about using me contact support.</b>",
+            text=f"<b>Thankyou For Adding Me In {message.chat.title} ❣️️\n\nIf you have any questions & doubts about using me contact support.</b>",
             reply_markup=reply_markup)
     else:
         settings = await get_settings(message.chat.id)
@@ -273,6 +273,7 @@ async def auto_spell_check_group(bot, message):
         buttons = [
             [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
             [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/+NoL3OkqPwBtiZjY0")]
+        ]
 
         user_name = message.from_user.mention if message.from_user else "Friend"
         reply_text = (
