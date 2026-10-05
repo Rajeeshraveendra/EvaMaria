@@ -9,11 +9,11 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 
-# നിങ്ങളുടെ ലോഗ് ചാനൽ ID (RRK Movies Productions)
+# RRK Movies Productions ചാനൽ ID
 TARGET_LOG_CHANNEL = -1003799495012
 
-@Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]))
-async def movie_search_and_sender(client, message):
+@Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
+async def pm_group_movie_search(client, message):
     if not message.text or message.text.startswith(("/", "!", "#")):
         return
     if message.from_user and message.from_user.is_bot:
@@ -27,40 +27,47 @@ async def movie_search_and_sender(client, message):
     user_name = message.from_user.mention
     chat_type = message.chat.type
 
-    # ഡാറ്റാബേസിൽ നിന്ന് ഫയലുകൾ തിരയുന്നു
+    # EvaMaria ഡാറ്റാബേസിൽ നിന്ന് ഫയലുകൾ തിരയുന്നു (chat_id നൽകി)
     try:
-        files, _, _ = await get_search_results(query, max_results=10)
+        files, offset, total_results = await get_search_results(message.chat.id, query, max_results=10)
+    except TypeError:
+        try:
+            files, offset, total_results = await get_search_results(query, max_results=10)
+        except Exception as e:
+            logger.error(f"Search Error: {e}")
+            return
     except Exception as e:
         logger.error(f"Search Query Error: {e}")
         return
 
-    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ സ്പെല്ലിംഗ് ചെക്ക് നിർദ്ദേശം
+    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
     if not files:
-        google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
-        buttons = [
-            [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
-            [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/+NoL3OkqPwBtiZjY0")]
-        ]
-        reply_text = (
-            f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-            f"Hey {user_name},\n"
-            f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
-            f"💡 <b>Please check the spelling and send again.</b>\n"
-            f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
-            f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
-        )
-        try:
-            await message.reply_text(
-                text=reply_text,
-                quote=True,
-                reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode=enums.ParseMode.HTML
+        if chat_type == enums.ChatType.PRIVATE:
+            google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
+            buttons = [
+                [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
+                [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/+NoL3OkqPwBtiZjY0")]
+            ]
+            reply_text = (
+                f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                f"Hey {user_name},\n"
+                f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
+                f"💡 <b>Please check the spelling and send again.</b>\n"
+                f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
+                f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
             )
-        except Exception:
-            pass
+            try:
+                await message.reply_text(
+                    text=reply_text,
+                    quote=True,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception:
+                pass
         return
 
-    # ഉപയോക്താവിന്റെ വ്യക്തിഗത ചാറ്റിലേക്ക് (PM) ഫയലുകൾ അയക്കുന്നു
+    # PM-ലേക്ക് ഫയലുകൾ അയക്കുന്നു
     sent_count = 0
     blocked_or_not_started = False
 
@@ -93,34 +100,35 @@ async def movie_search_and_sender(client, message):
         except Exception as e:
             logger.error(f"Send File Error: {e}")
 
-    # ഉപയോക്താവ് ബോട്ട് PM-ൽ Start ചെയ്തിട്ടില്ലെങ്കിൽ നിർദ്ദേശം നൽകുന്നു
+    # യൂസർ ബോട്ട് സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
-        btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
-        await message.reply_text(
-            f"ഹലോ {user_name}, സിനിമ നിങ്ങളുടെ ഇൻബോക്സിലേക്ക് (PM) അയക്കാൻ താഴെ കാണുന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ബോട്ട് <b>Start</b> ചെയ്യുക!",
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
-        )
+        if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+            btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
+            await message.reply_text(
+                f"ഹലോ {user_name}, സിനിമ നിങ്ങളുടെ ഇൻബോക്സിലേക്ക് അയക്കാൻ താഴെ കാണുന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ബോട്ട് <b>Start</b> ചെയ്യുക!",
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
         return
 
-    # ഗ്രൂപ്പിലാണ് സെർച്ച് ചെയ്തതെങ്കിൽ വിവരം ഗ്രൂപ്പിൽ അറിയിക്കുന്നു
+    # ഗ്രൂപ്പിലാണെങ്കിൽ അറിയിപ്പ് നൽകുന്നു
     if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
         await message.reply_text(
-            f"✅ {user_name}, താങ്കൾ ആവശ്യപ്പെട്ട സിനിമയുടെ {sent_count} ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയച്ചിട്ടുണ്ട്!",
+            f"✅ {user_name}, താങ്കൾ ആവശ്യപ്പെട്ട സിനിമയുടെ ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയച്ചിട്ടുണ്ട്!",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
 
-    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അയക്കുന്നു
+    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായ ഫോർമാറ്റിൽ അയക്കുന്നു
     if sent_count > 0:
         try:
-            chat_title = message.chat.title if message.chat.title else "Bot PM"
-            user_link = f"<a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
+            req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
+            user_full = f"<a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
             log_text = (
                 f"📁 <b>#FileSentToPM</b>\n\n"
-                f"👥 <b>Requested In:</b> {chat_title}\n"
-                f"👤 <b>User:</b> {user_link} (<code>{user_id}</code>)\n"
+                f"👥 <b>Requested In:</b> {req_in}\n"
+                f"👤 <b>User:</b> {user_full} ({user_id})\n"
                 f"🔍 <b>Query:</b> <code>{query}</code>\n"
                 f"📦 <b>Files Sent:</b> {sent_count}"
             )
@@ -130,5 +138,6 @@ async def movie_search_and_sender(client, message):
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
+            print(f"[SUCCESS] Sent #FileSentToPM log to {TARGET_LOG_CHANNEL}")
         except Exception as log_err:
-            logger.error(f"Failed to send log to channel: {log_err}")
+            logger.error(f"Channel Log Sending Failed: {log_err}")
