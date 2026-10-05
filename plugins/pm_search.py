@@ -26,13 +26,15 @@ async def pm_group_movie_search(client, message):
     user_name = message.from_user.mention
     chat_type = message.chat.type
 
-    # ഡാറ്റാബേസിൽ നിന്ന് തിരയുന്നു
+    # ഡാറ്റാബേസിൽ നിന്ന് ഫയലുകൾ തിരയുന്നു
     try:
         files, offset, total_results = await get_search_results(query, max_results=10)
     except Exception as e:
+        print(f"[SEARCH ERROR]: {e}")
         logger.error(f"Search Query Error: {e}")
         return
 
+    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
     if not files:
         if chat_type == enums.ChatType.PRIVATE:
             google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
@@ -59,6 +61,7 @@ async def pm_group_movie_search(client, message):
                 pass
         return
 
+    # ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
     sent_count = 0
     blocked_or_not_started = False
 
@@ -91,6 +94,7 @@ async def pm_group_movie_search(client, message):
         except Exception as e:
             logger.error(f"Send File Error: {e}")
 
+    # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
         if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
             btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
@@ -101,6 +105,7 @@ async def pm_group_movie_search(client, message):
             )
         return
 
+    # ഗ്രൂപ്പിലാണെങ്കിൽ അറിയിപ്പ് നൽകുന്നു
     if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
         await message.reply_text(
@@ -109,6 +114,7 @@ async def pm_group_movie_search(client, message):
             parse_mode=enums.ParseMode.HTML
         )
 
+    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായ ഫോർമാറ്റിൽ അയക്കുന്നു
     if sent_count > 0:
         try:
             req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
@@ -116,7 +122,8 @@ async def pm_group_movie_search(client, message):
             log_text = (
                 f"📁 <b>#FileSentToPM</b>\n\n"
                 f"👥 <b>Requested In:</b> {req_in}\n"
-                f"👤 <b>User:</b> {user_full} ({user_id})\n"
+                f"👤 <b>User:</b> {user_full}\n"
+                f"({user_id})\n"
                 f"🔍 <b>Query:</b> <code>{query}</code>\n"
                 f"📦 <b>Files Sent:</b> {sent_count}"
             )
@@ -126,5 +133,7 @@ async def pm_group_movie_search(client, message):
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
+            print(f"[LOG SUCCESS] #FileSentToPM successfully sent to channel {TARGET_LOG_CHANNEL}")
         except Exception as log_err:
-            logger.error(f"Log Error: {log_err}")
+            print(f"[LOG ERROR DETAILED]: {repr(log_err)}")
+            logger.error(f"Channel Log Sending Failed: {log_err}")
