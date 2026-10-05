@@ -5,7 +5,6 @@ import urllib.request
 import json
 import re
 import difflib
-import io
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant, FloodWait, InputUserDeactivated
@@ -21,8 +20,8 @@ TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 
-# TMDb Public API Key
-TMDB_API_KEY = "2ff903dc084f7b2c5d4b53754e38c92a"
+# TMDb Key
+TMDB_KEY = "2ff903dc084f7b2c5d4b53754e38c92a"
 
 def get_readable_file_size(size_in_bytes):
     """ഫയൽ സൈസ് MB / GB ഫോർമാറ്റിലേക്ക് മാറ്റുന്നു"""
@@ -78,53 +77,40 @@ def clean_movie_title(raw_text):
     words = [w for w in cleaned.split() if not any(tag in w.lower() for tag in ["1080p", "720p", "480p", "dvdrip", "hdrip", "hevc", "x264", "x265", "mkv", "mp4"])]
     return words[0] if words else raw_text.strip()
 
-def fetch_tmdb_sync(movie_name):
-    """TMDb API വഴി പോസ്റ്റർ നേരിട്ട് ഡൗൺലോഡ് ചെയ്ത് എടുക്കുന്നു"""
+def get_movie_poster_and_info(movie_name):
+    """TMDb-ൽ നിന്ന് നേരിട്ടുള്ള ഇമേജ് ലിങ്കും ഡീറ്റെയിൽസും എടുക്കുന്നു"""
     try:
-        search_query = clean_movie_title(movie_name)
-        encoded = urllib.parse.quote(search_query)
-        url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={encoded}"
-        
+        name = clean_movie_title(movie_name)
+        url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_KEY}&query={urllib.parse.quote(name)}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode('utf-8'))
             results = data.get("results", [])
             if results:
-                movie = results[0]
-                title = movie.get("title", search_query)
-                release_date = movie.get("release_date", "")
-                year = release_date.split("-")[0] if release_date else "N/A"
-                rating = movie.get("vote_average", "N/A")
-                overview = movie.get("overview", "")
+                m = results[0]
+                title = m.get("title", name)
+                date = m.get("release_date", "")
+                year = date.split("-")[0] if date else "N/A"
+                vote = m.get("vote_average", "N/A")
+                overview = m.get("overview", "")
                 if overview and len(overview) > 250:
                     overview = overview[:247] + "..."
                 if not overview:
                     overview = "വിവരണം ലഭ്യമല്ല."
-                    
-                poster_path = movie.get("poster_path")
-                photo_bytes = None
-                if poster_path:
-                    poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                    img_req = urllib.request.Request(poster_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(img_req, timeout=5) as img_resp:
-                        img_data = img_resp.read()
-                        photo_bytes = io.BytesIO(img_data)
-                        photo_bytes.name = "poster.jpg"
-                
+
+                poster_path = m.get("poster_path")
+                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
+
                 caption = (
                     f"🎬 <b>{title} ({year})</b>\n\n"
-                    f"⭐ <b>Rating:</b> <code>{rating}/10</code>\n"
+                    f"⭐ <b>TMDb Rating:</b> <code>{vote}/10</code>\n"
                     f"📖 <b>Story:</b> <i>{overview}</i>\n\n"
                     f"📥 <i>സിനിമയുടെ ഫയലുകൾ താഴെ നൽകുന്നു...</i>"
                 )
-                return photo_bytes, caption
+                return poster_url, caption
     except Exception as e:
-        print(f"[TMDB FETCH ERROR]: {e}")
+        logger.warning(f"Poster Fetch Issue: {e}")
     return None, None
-
-async def get_tmdb_movie_info(query):
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, fetch_tmdb_sync, query)
 
 async def is_subscribed(client, user_id):
     """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുന്നു"""
@@ -283,19 +269,25 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. സിനിമയുടെ TMDb പോസ്റ്ററും വിവരങ്ങളും PM-ലേക്ക് അയക്കുന്നു
-    try:
-        photo_file, tmdb_caption = await get_tmdb_movie_info(query)
-        if tmdb_caption:
-            if photo_file:
-                await client.send_photo(chat_id=user_id, photo=photo_file, caption=tmdb_caption, parse_mode=enums.ParseMode.HTML)
+    # 3. സിനിമയുടെ പോസ്റ്ററും ഡീറ്റെയിൽസും അയക്കുന്നു
+    loop = asyncio.get_running_loop()
+    poster_url, caption_info = await loop.run_in_executor(None, get_movie_poster_and_info, query)
+
+    if caption_info:
+        try:
+            if poster_url:
+                await client.send_photo(chat_id=user_id, photo=poster_url, caption=caption_info, parse_mode=enums.ParseMode.HTML)
             else:
-                await client.send_message(chat_id=user_id, text=tmdb_caption, parse_mode=enums.ParseMode.HTML)
+                await client.send_message(chat_id=user_id, text=caption_info, parse_mode=enums.ParseMode.HTML)
             await asyncio.sleep(0.5)
-    except (UserIsBlocked, PeerIdInvalid):
-        blocked_or_not_started = True
-    except Exception as e:
-        print(f"[POSTER SEND ERROR]: {e}")
+        except (UserIsBlocked, PeerIdInvalid):
+            blocked_or_not_started = True
+        except Exception:
+            # ഫോട്ടോ ലിങ്ക് ടെലിഗ്രാം റിജക്ട് ചെയ്താൽ വിവരങ്ങൾ മാത്രം അയക്കുന്നു
+            try:
+                await client.send_message(chat_id=user_id, text=caption_info, parse_mode=enums.ParseMode.HTML)
+            except Exception:
+                pass
 
     # 4. ഫയലുകൾ ഉപയോക്താവിന് അയക്കുന്നു
     if not blocked_or_not_started:
