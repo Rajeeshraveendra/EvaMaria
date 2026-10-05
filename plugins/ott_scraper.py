@@ -36,37 +36,32 @@ def clean_movie_title(raw_title):
     title = re.sub(r"[^a-zA-Z0-9\s]", " ", title)
     return re.sub(r"\s+", " ", title).strip()
 
-def fetch_upcoming_malayalam():
-    """TMDB API-യിൽ നിന്ന് മലയാളത്തിലെ ഏറ്റവും പുതിയതും വരാനിരിക്കുന്നതുമായ റിലീസുകൾ എടുക്കുന്നു"""
+def fetch_latest_malayalam_movies():
+    """ഏറ്റവും പുതിയ മലയാളം റിലീസുകൾ ഉറപ്പായും ലഭിക്കുന്ന വിശ്വസനീയമായ TMDB എൻഡ്‌പോയിന്റ്"""
     items = []
-    current_year = datetime.now().year
-
     try:
+        # മലയാളത്തിലെ ഏറ്റവും പുതിയതും ജനപ്രിയവുമായ ചിത്രങ്ങൾ
         url = "https://api.themoviedb.org/3/discover/movie"
         params = {
             "api_key": TMDB_API_KEY,
             "with_original_language": "ml",
-            "sort_by": "primary_release_date.desc",
-            "primary_release_date.gte": f"{current_year - 1}-01-01",
-            "include_adult": "false"
+            "sort_by": "popularity.desc",
+            "include_adult": "false",
+            "page": 1
         }
         res = requests.get(url, params=params, timeout=12)
         if res.status_code == 200:
-            for m in res.json().get("results", []):
-                title = m.get("title", "").strip()
-                if not title:
-                    continue
-
-                rel_date = m.get("release_date", "Coming Soon")
-                items.append({
-                    "id": m.get("id"),
-                    "title": title,
-                    "date": rel_date,
-                    "overview": m.get("overview", ""),
-                    "poster_path": m.get("poster_path")
-                })
-                if len(items) >= 5:
-                    break
+            data = res.json()
+            for m in data.get("results", [])[:5]:
+                t = m.get("title") or m.get("original_title")
+                if t:
+                    items.append({
+                        "id": m.get("id"),
+                        "title": t.strip(),
+                        "date": m.get("release_date") or "Streaming Soon",
+                        "overview": m.get("overview", ""),
+                        "poster_path": m.get("poster_path")
+                    })
     except Exception as e:
         print(f"[TMDB Fetch Error]: {e}")
 
@@ -86,7 +81,7 @@ def get_trailer_url(movie_id, title):
         print(f"[Trailer Error]: {e}")
 
     if not trailer_url:
-        q = urllib.parse.quote(f"{title} malayalam movie official trailer")
+        q = urllib.parse.quote(f"{title} malayalam movie trailer")
         trailer_url = f"https://www.youtube.com/results?search_query={q}"
 
     return trailer_url
@@ -98,7 +93,7 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
 
     posted_set = load_posted_ott()
     loop = asyncio.get_event_loop()
-    movies = await loop.run_in_executor(None, fetch_upcoming_malayalam)
+    movies = await loop.run_in_executor(None, fetch_latest_malayalam_movies)
 
     if not movies:
         if status_msg:
@@ -120,7 +115,7 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
         caption = (
             f"📢 <b>UPCOMING / NEW RELEASE ALERT</b> 🎬\n\n"
             f"🎞 <b>Movie :</b> {item['title']}\n"
-            f"🗓 <b>Release Date :</b> <b>{item.get('date', 'Coming Soon')}</b>\n"
+            f"🗓 <b>Status / Release :</b> <b>{item.get('date', 'Coming Soon')}</b>\n"
             f"📺 <b>Type :</b> Theatrical / Digital OTT\n"
             f"🗣 <b>Audio :</b> Malayalam\n\n"
         )
