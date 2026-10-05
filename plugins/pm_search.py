@@ -28,7 +28,6 @@ async def is_subscribed(client, user_id):
     except UserNotParticipant:
         return False
     except Exception as e:
-        # ബോട്ട് പെർമിഷൻ പ്രശ്നമോ നെറ്റ്‌വർക്ക് തകരാറോ വന്നാൽ ബോട്ട് ക്രാഷ് ആവാതിരിക്കാനുള്ള സുരക്ഷ
         logger.warning(f"Force Sub Error: {e}")
         return True
     return False
@@ -48,8 +47,9 @@ async def pm_group_movie_search(client, message):
     user_name = message.from_user.mention
     chat_type = message.chat.type
 
-    # 1. FORCE SUBSCRIBE പരിശോധിക്കുന്നു
-    subscribed = await is_subscribed(client, user_id)
+    # 1. FORCE SUBSCRIBE പരിശോധന (ടെസ്റ്റിംഗിനായി False നൽകിയിരിക്കുന്നു)
+    subscribed = False
+
     if not subscribed:
         btn = [
             [InlineKeyboardButton("📢 Join Main Group / ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യുക", url=FORCE_SUB_INVITE_LINK)],
