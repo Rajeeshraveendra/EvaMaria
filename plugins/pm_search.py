@@ -17,6 +17,7 @@ FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 
 def get_readable_file_size(size_in_bytes):
+    """File size MB / GB format-ilekku maattunnu"""
     if not size_in_bytes:
         return "N/A"
     try:
@@ -30,7 +31,7 @@ def get_readable_file_size(size_in_bytes):
         return "N/A"
 
 async def auto_delete_group_pair(client, chat_id, user_msg_id, bot_msg_id=None, delay=5):
-    """5 സെക്കൻഡിൽ കൃത്യമായി ഗ്രൂപ്പിൽ നിന്ന് രണ്ടും ഡിലീറ്റ് ചെയ്യുന്നു"""
+    """5 second-il user message-um bot message-um groupil ninnu delete aakkunnu"""
     await asyncio.sleep(delay)
     try:
         if bot_msg_id:
@@ -43,6 +44,7 @@ async def auto_delete_group_pair(client, chat_id, user_msg_id, bot_msg_id=None, 
         logger.error(f"User Msg Delete Error: {e}")
 
 async def get_db_spelling_suggestion(query):
+    """Database-il ninnu cinemayude peru kandethunnu"""
     try:
         first_char = query.strip()[0]
         cursor = Media.find({"file_name": {"$regex": f"^{first_char}", "$options": "i"}}).limit(50)
@@ -63,6 +65,7 @@ async def get_db_spelling_suggestion(query):
     return None
 
 async def is_subscribed(client, user_id):
+    """User main groupil join cheythittundo ennu nokkunnu"""
     try:
         member = await client.get_chat_member(chat_id=FORCE_SUB_CHAT, user_id=user_id)
         if member.status in [
@@ -78,35 +81,35 @@ async def is_subscribed(client, user_id):
         return True
     return False
 
-@Client.on_message(filters.text & filters.incoming, group=-1)
+# Group=-100 nalki priority kootunnu, mattulla filter plugins interfere cheyyilla
+@Client.on_message(filters.text & filters.incoming, group=-100)
 async def pm_group_movie_search(client, message):
     if not message.text:
         return
 
     text = message.text.strip()
 
-    # കമാൻഡുകൾ ആണെങ്കിൽ ഒഴിവാക്കുക (/start, /help etc.)
+    # Commands ozhivakkunnu
     if text.startswith(("/", "!", "#")):
         return
 
     if len(text) < 2:
         return
 
+    # Mattulla plugins-ilottu ee message pokunnathu thadayunnu
+    message.stop_propagation()
+
     chat_type = message.chat.type
     user = message.from_user
 
-    # യൂസർ പ്രൊഫൈൽ ഇല്ലാത്ത (anonymous) മെസ്സേജ് ആണെങ്കിൽ ഒഴിവാക്കുന്നു
-    if not user:
-        return
-
-    if user.is_bot:
+    if not user or user.is_bot:
         return
 
     query = text
     user_id = user.id
     user_name = user.mention
 
-    # 1. FORCE SUBSCRIBE പരിശോധന
+    # 1. FORCE SUBSCRIBE CHECK
     subscribed = await is_subscribed(client, user_id)
     if not subscribed:
         btn = [
@@ -114,9 +117,9 @@ async def pm_group_movie_search(client, message):
             [InlineKeyboardButton("🔄 Try Again / വീണ്ടും ശ്രമിക്കുക", url=f"https://t.me/{temp.U_NAME}?start=start")]
         ]
         fsub_text = (
-            f"👋 ഹലോ {user_name},\n\n"
-            f"⚠ <b>സിനിമകൾ ഡൗൺലോഡ് ചെയ്യുന്നതിനായി ആദ്യം ഞങ്ങളുടെ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യേണ്ടതാണ്!</b>\n\n"
-            f"താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്ത ശേഷം വീണ്ടും സിനിമയുടെ പേര് അയക്കുക."
+            f"👋 Hello {user_name},\n\n"
+            f"⚠ <b>Cinemakal download cheyyunnathinaayi aadyam njangalude Main Groupil join cheyyendathaannu!</b>\n\n"
+            f"Thaazheyulla button click cheythu groupil join cheytha shesham veendum cinemayude peru ayakkuka."
         )
         try:
             fsub_msg = await message.reply_text(
@@ -131,14 +134,14 @@ async def pm_group_movie_search(client, message):
             pass
         return
 
-    # 2. ഡാറ്റാബേസിൽ ഫയലുകൾ തിരയുന്നു
+    # 2. DATABASE SEARCH
     try:
         files, offset, total_results = await get_search_results(query, max_results=10)
     except Exception as e:
         logger.error(f"Search Query Error: {e}")
         return
 
-    # ഫയലുകൾ ഇല്ലെങ്കിൽ
+    # Files illaatha avastha
     if not files:
         suggestion = await get_db_spelling_suggestion(query)
         buttons = []
@@ -147,10 +150,10 @@ async def pm_group_movie_search(client, message):
         if suggestion and suggestion.lower() != query.lower():
             reply_text = (
                 f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-                f"താങ്കൾ തിരഞ്ഞത്: <code>{query}</code>\n\n"
-                f"🤔 <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് ഇതാണോ? (Did you mean):</b>\n"
+                f"Thaankal thiranju: <code>{query}</code>\n\n"
+                f"🤔 <b>Ningal uddheshichathu ithano? (Did you mean):</b>\n"
                 f"👉 <b>{suggestion}</b>\n\n"
-                f"⏳ <i>ഈ മെസ്സേജ് തനിയെ ഡിലീറ്റ് ആകുന്നതാണ്.</i>"
+                f"⏳ <i>Ee message thaniye delete aakunna thaanu.</i>"
             )
             buttons.append([InlineKeyboardButton(f"🎬 Search: {suggestion}", switch_inline_query_current_chat=suggestion)])
         else:
@@ -160,7 +163,7 @@ async def pm_group_movie_search(client, message):
                 f"Hey {user_name},\n"
                 f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
                 f"💡 <b>Please check the spelling and send again.</b>\n\n"
-                f"⏳ <i>ഈ മെസ്സേജ് തനിയെ ഡിലീറ്റ് ആകുന്നതാണ്.</i>"
+                f"⏳ <i>Ee message thaniye delete aakunna thaanu.</i>"
             )
             buttons.append([InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)])
 
@@ -174,10 +177,8 @@ async def pm_group_movie_search(client, message):
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=enums.ParseMode.HTML
             )
-            if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
-                asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, not_found_msg.id, delay=5))
-            else:
-                asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, not_found_msg.id, delay=60))
+            del_delay = 5 if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] else 60
+            asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, not_found_msg.id, delay=del_delay))
         except Exception:
             pass
         return
@@ -185,7 +186,7 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയക്കുന്നു
+    # 3. FILES PM-LEKKU AYAKKUNNU
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -199,7 +200,7 @@ async def pm_group_movie_search(client, message):
             f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
             f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
             f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
-            f"📥 <b>കൂടുതൽ മൂവികൾക്കായി ജോയിൻ ചെയ്യൂ:</b>\n"
+            f"📥 <b>Kooduthal movies-naayi join cheyyuu:</b>\n"
             f"👉 {FORCE_SUB_INVITE_LINK}"
         )
 
@@ -218,26 +219,26 @@ async def pm_group_movie_search(client, message):
         except Exception as e:
             logger.error(f"Send File Error: {e}")
 
-    # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
+    # User bot start cheythittillaenkil
     if blocked_or_not_started:
         if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
             btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
             warn_msg = await message.reply_text(
-                f"ഹലോ {user_name}, സിനിമ നിങ്ങളുടെ ഇൻബോക്സിലേക്ക് അയക്കാൻ താഴെ കാണുന്ന ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ബോട്ട് <b>Start</b> ചെയ്യുക!",
+                f"Hello {user_name}, cinema inbox-ilekku labhikkaan thaazhe kaanunna button click cheythu bot <b>Start</b> cheyyuka!",
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
             asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, warn_msg.id, delay=10))
         return
 
-    # 4. ഇൻബോക്സിലേക്ക് നന്ദി സന്ദേശം
+    # 4. PM-LEKKU THANK YOU MESSAGE
     if sent_count > 0:
         thanks_text = (
-            f"🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
-            f"🎉 <i>നിങ്ങൾ ചോദിച്ച സിനിമയുടെ ഫയലുകൾ തരാൻ കഴിഞ്ഞതിൽ വളരെ സന്തോഷം.</i>\n\n"
-            f"💡 <i>നിങ്ങളുടെ വിലയേറിയ നിർദ്ദേശങ്ങളും തെറ്റുകളും ഉണ്ടെങ്കിൽ അഡ്മിനെ അറിയിക്കുക.</i>\n\n"
-            f"💖 <i>RRK Movies AutoBot ഉപയോഗിച്ചതിന് നന്ദി. ഹാപ്പി വാച്ചിംഗ്!</i>\n\n"
-            f"കൂടുതൽ പുതിയ സിനിമകൾക്കും അപ്‌ഡേറ്റുകൾക്കുമായി ഞങ്ങളുടെ ചാനലിൽ ജോയിൻ ചെയ്യുക."
+            f"🍿 <b>Thaankal thiranja fayalukal vijayakaramaayi ayachittundu!</b>\n"
+            f"🎉 <i>Ningal chodicha cinemayude fayalukal tharan kazhinjathil valare santhosham.</i>\n\n"
+            f"💡 <i>Ningalude vilayeriya nirdheshangalum thettukalum undenkil admin-e ariyikkuka.</i>\n\n"
+            f"💖 <i>RRK Movies AutoBot upayogichathinu nandi. Happy Watching!</i>\n\n"
+            f"Kooduthal puthiya cinemakalkkum updates-numaayi njangalude channel-il join cheyyuka."
         )
         thanks_buttons = [
             [
@@ -256,17 +257,17 @@ async def pm_group_movie_search(client, message):
         except Exception:
             pass
 
-    # 5. ഗ്രൂപ്പിൽ അയച്ച മെസ്സേജും ബോട്ടിന്റെ മറുപടിയും 5 സെക്കൻഡിൽ തനിയെ ഡിലീറ്റ് ആകുന്നു
+    # 5. GROUP CONFIRMATION + KRITHYAM 5 SECOND-IL AUTO DELETE
     if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
         grp_confirm_msg = await message.reply_text(
-            f"✅ {user_name}, താങ്കൾ ആവശ്യപ്പെട്ട സിനിമയുടെ ഫയലുകൾ ഇൻബോക്സിലേക്ക് (PM) അയച്ചിട്ടുണ്ട്!",
+            f"✅ {user_name}, thaankal aavashyappetta cinemayude files inboxilekku (PM) ayachittundu!",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
         asyncio.create_task(auto_delete_group_pair(client, message.chat.id, message.id, grp_confirm_msg.id, delay=5))
 
-    # ലോഗ് ചാനലിലേക്ക്
+    # Log channel-ilekku
     if sent_count > 0:
         try:
             req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
@@ -288,7 +289,7 @@ async def pm_group_movie_search(client, message):
         except Exception:
             pass
 
-# Movie Request ബട്ടൺ ഹാൻഡ്‌ലർ
+# Movie Request callback handler
 @Client.on_callback_query(filters.regex(r"^req_"))
 async def movie_request_handler(client, query):
     user = query.from_user
@@ -311,7 +312,7 @@ async def movie_request_handler(client, query):
     except Exception as e:
         logger.error(f"Request Log Error: {e}")
 
-    await query.answer("✅ താങ്കളുടെ റിക്വസ്റ്റ് അഡ്മിന് ലഭിച്ചിട്ടുണ്ട്! സിനിമ ഉടൻ അപ്‌ലോഡ് ചെയ്യുന്നതാണ്.", show_alert=True)
+    await query.answer("✅ Thaankalude request admin-u labhichittundu! Cinema udan upload cheyyunnathaanu.", show_alert=True)
 
     try:
         new_buttons = []
@@ -329,9 +330,9 @@ async def movie_request_handler(client, query):
 
 @Client.on_callback_query(filters.regex("^already_requested$"))
 async def already_requested_handler(client, query):
-    await query.answer("ഈ സിനിമ ഇതിനകം അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്തിട്ടുണ്ട്!", show_alert=False)
+    await query.answer("Ee cinema ithinakam adminodu request cheythittundu!", show_alert=False)
 
-# Help, About, Home ബട്ടൺ ഹാൻഡ്‌ലർ
+# Help, About, Home handlers
 @Client.on_callback_query(filters.regex("^(help|about|home)$"))
 async def cb_help_about_handler(client, query):
     data = query.data
@@ -339,10 +340,10 @@ async def cb_help_about_handler(client, query):
 
     if data == "help":
         help_text = (
-            f"ℹ <b>സഹായം / Help Guide</b>\n\n"
-            f"ഹലോ {user_name},\n\n"
-            f"1. സിനിമ ലഭിക്കാൻ സിനിമയുടെ പേര് കൃത്യമായ സ്പെല്ലിംഗിൽ അയക്കുക.\n"
-            f"2. ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യുന്നതിന് മുൻപ് ഞങ്ങളുടെ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിരിക്കണം.\n\n"
+            f"ℹ <b>Help Guide / സഹായം</b>\n\n"
+            f"Hello {user_name},\n\n"
+            f"1. Cinema labhikkaan cinemayude peru krithyamaaya spelling-il ayakkuka.\n"
+            f"2. Files download cheyyunnathinu munpu Main Groupil join cheythirikkannam.\n\n"
             f"📞 <b>Admin Contact / ബന്ധപ്പെടാൻ:</b>\n"
             f"👤 <b>Admin :</b> Rajeesh Raveendra Kamballur\n"
             f"📱 <b>Phone :</b> <code>+971562769519</code>"
@@ -383,12 +384,12 @@ async def cb_help_about_handler(client, query):
 
     elif data == "home":
         home_text = (
-            f"തിയേറ്റർ പ്രിന്റുകളോട് വിട പറയാം! ഇനി സിനിമകൾ കാണാം Full HD ക്വാളിറ്റിയിൽ മാത്രം. 🍿🎬\n\n"
-            f"✅ <b>എന്തുകൊണ്ട് ഞങ്ങളുടെ ഗ്രൂപ്പ്?</b>\n\n"
-            f"🚫 തിയേറ്റർ പ്രിന്റുകൾ ഇല്ല\n"
-            f"💎 ശുദ്ധമായ HD മൂവീസ് മാത്രം\n"
-            f"⚡ ഫാസ്റ്റ് ഡൗൺലോഡ് ലിങ്കുകൾ\n\n"
-            f"📥 ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:\n"
+            f"Theatre printukalodu vida parayaam! Ini cinemakal kaanaam Full HD quality-il maathram. 🍿🎬\n\n"
+            f"✅ <b>Enthukondu njangalude group?</b>\n\n"
+            f"🚫 Theatre printukal illa\n"
+            f"💎 Shuddhamaaya HD movies maathram\n"
+            f"⚡ Fast download links\n\n"
+            f"📥 Ippol thanne join cheyyuu:\n"
             f"👉 {FORCE_SUB_INVITE_LINK}"
         )
         buttons = [
