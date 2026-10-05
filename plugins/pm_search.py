@@ -1,33 +1,37 @@
 import logging
 import asyncio
 import urllib.parse
-import urllib.request
-import json
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import UserIsBlocked, PeerIdInvalid
+from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant
 from database.ia_filterdb import get_search_results
 from utils import temp
 
 logger = logging.getLogger(__name__)
 
 TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
-TMDB_API_KEY = "2e7a02b66d8e2023cb2bcbb678b8e0b2"
 
-def get_hd_poster_sync(movie_title):
+# നൽകിയ ഗ്രൂപ്പ് ഐഡിയും ഇൻവൈറ്റ് ലിങ്കും
+FORCE_SUB_CHAT = -1001452215783
+FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
+
+async def is_subscribed(client, user_id):
+    """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് സുരക്ഷിതമായി പരിശോധിക്കുന്നു"""
     try:
-        clean_title = urllib.parse.quote(movie_title.strip())
-        url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={clean_title}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=4) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode('utf-8'))
-                results = data.get("results")
-                if results and results[0].get("poster_path"):
-                    return f"https://image.tmdb.org/t/p/original{results[0].get('poster_path')}"
+        member = await client.get_chat_member(chat_id=FORCE_SUB_CHAT, user_id=user_id)
+        if member.status in [
+            enums.ChatMemberStatus.MEMBER,
+            enums.ChatMemberStatus.ADMINISTRATOR,
+            enums.ChatMemberStatus.OWNER
+        ]:
+            return True
+    except UserNotParticipant:
+        return False
     except Exception as e:
-        logger.warning(f"Poster fetch error: {e}")
-    return None
+        # ബോട്ട് പെർമിഷൻ പ്രശ്നമോ നെറ്റ്‌വർക്ക് തകരാറോ വന്നാൽ ബോട്ട് ക്രാഷ് ആവാതിരിക്കാനുള്ള സുരക്ഷ
+        logger.warning(f"Force Sub Error: {e}")
+        return True
+    return False
 
 @Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
 async def pm_group_movie_search(client, message):
@@ -44,7 +48,30 @@ async def pm_group_movie_search(client, message):
     user_name = message.from_user.mention
     chat_type = message.chat.type
 
-    # Database-il ninnu files thirayunnu
+    # 1. FORCE SUBSCRIBE പരിശോധിക്കുന്നു
+    subscribed = await is_subscribed(client, user_id)
+    if not subscribed:
+        btn = [
+            [InlineKeyboardButton("📢 Join Main Group / ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യുക", url=FORCE_SUB_INVITE_LINK)],
+            [InlineKeyboardButton("🔄 Try Again / വീണ്ടും ശ്രമിക്കുക", url=f"https://t.me/{temp.U_NAME}?start=start")]
+        ]
+        fsub_text = (
+            f"👋 ഹലോ {user_name},\n\n"
+            f"⚠ <b>സിനിമകൾ ഡൗൺലോഡ് ചെയ്യുന്നതിനായി ആദ്യം ഞങ്ങളുടെ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യേണ്ടതാണ്!</b>\n\n"
+            f"താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്ത ശേഷം വീണ്ടും സിനിമയുടെ പേര് അയക്കുക."
+        )
+        try:
+            await message.reply_text(
+                text=fsub_text,
+                quote=True,
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception:
+            pass
+        return
+
+    # 2. ഡാറ്റാബേസിൽ നിന്ന് ഫയലുകൾ തിരയുന്നു
     try:
         files, offset, total_results = await get_search_results(query, max_results=10)
     except Exception as e:
@@ -52,13 +79,13 @@ async def pm_group_movie_search(client, message):
         logger.error(f"Search Query Error: {e}")
         return
 
-    # Files kittiyillengil
+    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
     if not files:
         if chat_type == enums.ChatType.PRIVATE:
             google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
             buttons = [
                 [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
-                [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/+NoL3OkqPwBtiZjY0")]
+                [InlineKeyboardButton("🎬 Join Channel / Releases", url=FORCE_SUB_INVITE_LINK)]
             ]
             reply_text = (
                 f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
@@ -82,60 +109,37 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 1. HD Poster ayakkunnu (Background thread-il execute cheyyunnu)
-    try:
-        loop = asyncio.get_event_loop()
-        poster_url = await loop.run_in_executor(None, get_hd_poster_sync, query)
-        if poster_url:
-            poster_caption = (
-                f"🎬 <b>{query.title()}</b>\n\n"
-                f"⚡ <b>Uploaded By:</b> @RRK_Movies\n"
-                f"📥 ഫയലുകൾ താഴെ വരുന്നുണ്ട്, ദയവായി കാത്തിരിക്കുക..."
-            )
-            await client.send_photo(
+    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
+    for doc in files:
+        file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
+        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
+
+        if not file_id:
+            continue
+
+        caption = (
+            f"🎬 <b>File Name:</b> <code>{file_name}</code>\n\n"
+            f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
+            f"📥 <b>ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:</b>\n"
+            f"👉 {FORCE_SUB_INVITE_LINK}"
+        )
+
+        try:
+            await client.send_cached_media(
                 chat_id=user_id,
-                photo=poster_url,
-                caption=poster_caption,
+                file_id=file_id,
+                caption=caption,
                 parse_mode=enums.ParseMode.HTML
             )
-            await asyncio.sleep(1)
-    except (UserIsBlocked, PeerIdInvalid):
-        blocked_or_not_started = True
-    except Exception as e:
-        logger.warning(f"Could not send poster: {e}")
+            sent_count += 1
+            await asyncio.sleep(1.2)
+        except (UserIsBlocked, PeerIdInvalid):
+            blocked_or_not_started = True
+            break
+        except Exception as e:
+            logger.error(f"Send File Error: {e}")
 
-    # 2. Movie Files ayakkunnu
-    if not blocked_or_not_started:
-        for doc in files:
-            file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
-            file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
-
-            if not file_id:
-                continue
-
-            caption = (
-                f"🎬 <b>File Name:</b> <code>{file_name}</code>\n\n"
-                f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
-                f"📥 <b>ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:</b>\n"
-                f"👉 https://t.me/+NoL3OkqPwBtiZjY0"
-            )
-
-            try:
-                await client.send_cached_media(
-                    chat_id=user_id,
-                    file_id=file_id,
-                    caption=caption,
-                    parse_mode=enums.ParseMode.HTML
-                )
-                sent_count += 1
-                await asyncio.sleep(1.2)
-            except (UserIsBlocked, PeerIdInvalid):
-                blocked_or_not_started = True
-                break
-            except Exception as e:
-                logger.error(f"Send File Error: {e}")
-
-    # User bot start cheythittillengil
+    # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
         if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
             btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
@@ -146,7 +150,7 @@ async def pm_group_movie_search(client, message):
             )
         return
 
-    # Groupil notification nalkunnu
+    # ഗ്രൂപ്പിലാണെങ്കിൽ അറിയിപ്പ് നൽകുന്നു
     if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
         await message.reply_text(
@@ -155,7 +159,7 @@ async def pm_group_movie_search(client, message):
             parse_mode=enums.ParseMode.HTML
         )
 
-    # Log channel-ilekk #FileSentToPM ayakkunnu
+    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അയക്കുന്നു
     if sent_count > 0:
         try:
             req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
