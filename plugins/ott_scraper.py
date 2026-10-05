@@ -43,10 +43,7 @@ def clean_movie_title(raw_title):
     return re.sub(r"\s+", " ", title).strip()
 
 def fetch_upcoming_malayalam():
-    """വരാനിരിക്കുന്നതും അടുത്ത ആഴ്ച റിലീസ് ആവുന്നതുമായ പുതിയ മലയാള സിനിമകൾ കണ്ടെത്തുന്നു"""
     items = []
-    
-    # 1. NowRunning Upcoming Releases
     try:
         url = "https://www.nowrunning.com/movie-release-dates/malayalam/"
         res = requests.get(url, headers=HEADERS, timeout=12)
@@ -62,15 +59,13 @@ def fetch_upcoming_malayalam():
                             "type": "Theatrical / OTT Release",
                             "date": "Releasing Soon / Next Week"
                         })
-                if len(items) >= 6:
+                if len(items) >= 5:
                     break
     except Exception as e:
         print(f"[NowRunning Fetch Error]: {e}")
 
-    # 2. ബാക്കപ്പായി TMDB വരാനിരിക്കുന്ന ചിത്രങ്ങൾ
-    if len(items) < 4:
+    if len(items) < 3:
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
             tmdb_url = "https://api.themoviedb.org/3/discover/movie"
             params = {
                 "api_key": TMDB_API_KEY,
@@ -88,12 +83,12 @@ def fetch_upcoming_malayalam():
                             "type": "New / Upcoming Release",
                             "date": m.get("release_date") or "Next Week / Soon"
                         })
-                    if len(items) >= 6:
+                    if len(items) >= 5:
                         break
         except Exception as e:
             print(f"[TMDB Discover Error]: {e}")
 
-    return items[:6]
+    return items[:5]
 
 def get_movie_meta(title):
     poster_url = None
@@ -204,11 +199,11 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
             print(f"[Upcoming Send Error]: {err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ വരാനിരിക്കുന്ന സിനിമകൾ ചാനലിലേക്ക് അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ ചിത്രങ്ങൾ ചാനലിലേക്ക് അയച്ചു.")
 
 @Client.on_message(filters.command("ott") & filters.private)
 async def manual_ott_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 അടുത്ത ആഴ്ച റിലീസ് ആവുന്ന പുതിയ ചിത്രങ്ങൾ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 പുതിയ ചിത്രങ്ങൾ തിരയുന്നു...")
     await run_ott_scraper(client, msg, force=True)
 
 async def auto_ott_loop(client: Client):
@@ -220,7 +215,8 @@ async def auto_ott_loop(client: Client):
             print(f"[Upcoming Loop Error]: {e}")
         await asyncio.sleep(7200)
 
-@Client.on_message(filters.private & ~filters.command(["scrape", "ott", "start", "help"]), group=-2)
+# Bot start aavumbol loop start cheyyunnu (Message loop trigger ozhivakki)
+@Client.on_message(filters.command("start") & filters.private)
 async def start_ott_loop_trigger(client: Client, message):
     if not hasattr(client, "_ott_loop_started"):
         client._ott_loop_started = True
