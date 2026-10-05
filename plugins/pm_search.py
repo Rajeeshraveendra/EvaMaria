@@ -123,7 +123,7 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു (Clean Custom Caption സഹിതം)
+    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു (ക്ലീൻ ക്യാപ്ഷൻ സഹിതം)
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -133,7 +133,6 @@ async def pm_group_movie_search(client, message):
         if not file_id:
             continue
 
-        # ക്ലീൻ കസ്റ്റം ക്യാപ്ഷൻ ലേഔട്ട്
         caption = (
             f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
             f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
@@ -294,6 +293,6 @@ async def cb_help_about_handler(client, query):
             await query.message.edit_text(
                 text=home_text,
                 reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode=enums.ParseMode.HTML
+                parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
