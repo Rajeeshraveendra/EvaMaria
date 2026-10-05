@@ -72,21 +72,21 @@ async def get_db_spelling_suggestion(query):
     return None
 
 def clean_movie_title(raw_text):
-    """ഫയൽ പേരുകളിൽ നിന്നുള്ള അനാവശ്യ വാക്കുകൾ നീക്കി യഥാർത്ഥ സിനിമയുടെ പേര് എടുക്കുന്നു"""
+    """സിനിമയുടെ പേര് മാത്രം വൃത്തിയായി എടുക്കുന്നു"""
     cleaned = re.sub(r"\[.*?\]|\(.*?\)|@\w+", " ", raw_text)
     cleaned = cleaned.replace(".", " ").replace("_", " ").replace("-", " ")
     words = [w for w in cleaned.split() if not any(tag in w.lower() for tag in ["1080p", "720p", "480p", "dvdrip", "hdrip", "hevc", "x264", "x265", "mkv", "mp4"])]
-    return " ".join(words[:2]) if words else raw_text.strip()
+    return words[0] if words else raw_text.strip()
 
 def fetch_tmdb_sync(movie_name):
-    """TMDb API വഴി സിനിമയുടെ പോസ്റ്ററും ഡീറ്റെയിൽസും എടുക്കുന്നു"""
+    """TMDb API വഴി പോസ്റ്റർ നേരിട്ട് ഡൗൺലോഡ് ചെയ്ത് എടുക്കുന്നു"""
     try:
         search_query = clean_movie_title(movie_name)
         encoded = urllib.parse.quote(search_query)
         url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={encoded}"
         
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=4) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode('utf-8'))
             results = data.get("results", [])
             if results:
@@ -102,7 +102,14 @@ def fetch_tmdb_sync(movie_name):
                     overview = "വിവരണം ലഭ്യമല്ല."
                     
                 poster_path = movie.get("poster_path")
-                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
+                photo_bytes = None
+                if poster_path:
+                    poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                    img_req = urllib.request.Request(poster_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(img_req, timeout=5) as img_resp:
+                        img_data = img_resp.read()
+                        photo_bytes = io.BytesIO(img_data)
+                        photo_bytes.name = "poster.jpg"
                 
                 caption = (
                     f"🎬 <b>{title} ({year})</b>\n\n"
@@ -110,9 +117,9 @@ def fetch_tmdb_sync(movie_name):
                     f"📖 <b>Story:</b> <i>{overview}</i>\n\n"
                     f"📥 <i>സിനിമയുടെ ഫയലുകൾ താഴെ നൽകുന്നു...</i>"
                 )
-                return poster_url, caption
+                return photo_bytes, caption
     except Exception as e:
-        logger.error(f"TMDb Fetch Error: {e}")
+        print(f"[TMDB FETCH ERROR]: {e}")
     return None, None
 
 async def get_tmdb_movie_info(query):
@@ -276,22 +283,19 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. TMDb പോസ്റ്ററും വിവരങ്ങളും PM-ലേക്ക് അയക്കുന്നു
+    # 3. സിനിമയുടെ TMDb പോസ്റ്ററും വിവരങ്ങളും PM-ലേക്ക് അയക്കുന്നു
     try:
-        poster_url, tmdb_caption = await get_tmdb_movie_info(query)
+        photo_file, tmdb_caption = await get_tmdb_movie_info(query)
         if tmdb_caption:
-            if poster_url:
-                try:
-                    await client.send_photo(chat_id=user_id, photo=poster_url, caption=tmdb_caption, parse_mode=enums.ParseMode.HTML)
-                except Exception:
-                    await client.send_message(chat_id=user_id, text=tmdb_caption, parse_mode=enums.ParseMode.HTML)
+            if photo_file:
+                await client.send_photo(chat_id=user_id, photo=photo_file, caption=tmdb_caption, parse_mode=enums.ParseMode.HTML)
             else:
                 await client.send_message(chat_id=user_id, text=tmdb_caption, parse_mode=enums.ParseMode.HTML)
             await asyncio.sleep(0.5)
     except (UserIsBlocked, PeerIdInvalid):
         blocked_or_not_started = True
     except Exception as e:
-        logger.warning(f"Poster send failed: {e}")
+        print(f"[POSTER SEND ERROR]: {e}")
 
     # 4. ഫയലുകൾ ഉപയോക്താവിന് അയക്കുന്നു
     if not blocked_or_not_started:
