@@ -36,38 +36,47 @@ def clean_movie_title(raw_title):
     title = re.sub(r"[^a-zA-Z0-9\s]", " ", title)
     return re.sub(r"\s+", " ", title).strip()
 
-def fetch_latest_malayalam_movies():
-    """ഏറ്റവും പുതിയ മലയാളം റിലീസുകൾ ഉറപ്പായും ലഭിക്കുന്ന വിശ്വസനീയമായ TMDB എൻഡ്‌പോയിന്റ്"""
+def fetch_multilang_movies():
+    """Malayalam, Tamil, English, Hindi, Telugu, Kannada റിലീസുകൾ എടുക്കുന്നു"""
+    languages = [
+        {"code": "ml", "name": "Malayalam"},
+        {"code": "ta", "name": "Tamil"},
+        {"code": "en", "name": "English"},
+        {"code": "hi", "name": "Hindi"},
+        {"code": "te", "name": "Telugu"},
+        {"code": "kn", "name": "Kannada"}
+    ]
     items = []
-    try:
-        # മലയാളത്തിലെ ഏറ്റവും പുതിയതും ജനപ്രിയവുമായ ചിത്രങ്ങൾ
-        url = "https://api.themoviedb.org/3/discover/movie"
-        params = {
-            "api_key": TMDB_API_KEY,
-            "with_original_language": "ml",
-            "sort_by": "popularity.desc",
-            "include_adult": "false",
-            "page": 1
-        }
-        res = requests.get(url, params=params, timeout=12)
-        if res.status_code == 200:
-            data = res.json()
-            for m in data.get("results", [])[:5]:
-                t = m.get("title") or m.get("original_title")
-                if t:
-                    items.append({
-                        "id": m.get("id"),
-                        "title": t.strip(),
-                        "date": m.get("release_date") or "Streaming Soon",
-                        "overview": m.get("overview", ""),
-                        "poster_path": m.get("poster_path")
-                    })
-    except Exception as e:
-        print(f"[TMDB Fetch Error]: {e}")
+
+    for lang in languages:
+        try:
+            url = "https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": TMDB_API_KEY,
+                "with_original_language": lang["code"],
+                "sort_by": "popularity.desc",
+                "include_adult": "false",
+                "page": 1
+            }
+            res = requests.get(url, params=params, timeout=10)
+            if res.status_code == 200:
+                for m in res.json().get("results", [])[:2]:
+                    t = m.get("title") or m.get("original_title")
+                    if t:
+                        items.append({
+                            "id": m.get("id"),
+                            "title": t.strip(),
+                            "lang": lang["name"],
+                            "date": m.get("release_date") or "Streaming Now",
+                            "overview": m.get("overview", ""),
+                            "poster_path": m.get("poster_path")
+                        })
+        except Exception as e:
+            print(f"[TMDB {lang['name']} Error]: {e}")
 
     return items
 
-def get_trailer_url(movie_id, title):
+def get_trailer_url(movie_id, title, lang):
     trailer_url = None
     try:
         v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
@@ -81,7 +90,7 @@ def get_trailer_url(movie_id, title):
         print(f"[Trailer Error]: {e}")
 
     if not trailer_url:
-        q = urllib.parse.quote(f"{title} malayalam movie trailer")
+        q = urllib.parse.quote(f"{title} {lang} official trailer")
         trailer_url = f"https://www.youtube.com/results?search_query={q}"
 
     return trailer_url
@@ -93,7 +102,7 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
 
     posted_set = load_posted_ott()
     loop = asyncio.get_event_loop()
-    movies = await loop.run_in_executor(None, fetch_latest_malayalam_movies)
+    movies = await loop.run_in_executor(None, fetch_multilang_movies)
 
     if not movies:
         if status_msg:
@@ -109,22 +118,23 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
         if not force and clean_name.lower() in posted_set:
             continue
 
+        lang = item.get("lang", "Movie")
         poster_url = f"https://image.tmdb.org/t/p/original{item['poster_path']}" if item.get("poster_path") else None
-        trailer_url = await loop.run_in_executor(None, get_trailer_url, item["id"], clean_name)
+        trailer_url = await loop.run_in_executor(None, get_trailer_url, item["id"], clean_name, lang)
 
         caption = (
-            f"📢 <b>UPCOMING / NEW RELEASE ALERT</b> 🎬\n\n"
+            f"📢 <b>NEW {lang.upper()} RELEASE ALERT</b> 🎬\n\n"
             f"🎞 <b>Movie :</b> {item['title']}\n"
-            f"🗓 <b>Status / Release :</b> <b>{item.get('date', 'Coming Soon')}</b>\n"
+            f"🗓 <b>Status / Release :</b> <b>{item.get('date', 'Streaming Now')}</b>\n"
             f"📺 <b>Type :</b> Theatrical / Digital OTT\n"
-            f"🗣 <b>Audio :</b> Malayalam\n\n"
+            f"🗣 <b>Audio :</b> {lang}\n\n"
         )
         if item.get("overview"):
             caption += f"📖 <b>Storyline :</b>\n<i>{item['overview'][:300]}...</i>\n\n"
 
         caption += (
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 <b>Movie Release Alert</b> ✅\n"
+            f"📌 <b>{lang} Release Added</b> ✅\n"
             f"💬 <b>Discussion Group :</b> <a href='{GROUP_LINK}'>{GROUP_NAME}</a>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
@@ -162,11 +172,11 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
             print(f"[Send Error]: {err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ ചിത്രങ്ങൾ ചാനലിലേക്ക് അയച്ചു.")
+        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ മൾട്ടി ലാംഗ്വേജ് ചിത്രങ്ങൾ ചാനലിലേക്ക് അയച്ചു.")
 
 @Client.on_message(filters.command("ott") & filters.private)
 async def manual_ott_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 പുതിയ ചിത്രങ്ങൾ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ തിരയുന്നു...")
     await run_ott_scraper(client, msg, force=True)
 
 async def auto_ott_loop(client: Client):
