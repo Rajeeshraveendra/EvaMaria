@@ -1,6 +1,8 @@
 import logging
 import asyncio
+import json
 import urllib.parse
+import urllib.request
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 
-# നൽകിയ ഗ്രൂപ്പ് ഐഡിയും ഇൻവൈറ്റ് ലിങ്കും
+# ഗ്രൂപ്പ് ഐഡിയും ഇൻവൈറ്റ് ലിങ്കും
 FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 
@@ -29,8 +31,28 @@ def get_readable_file_size(size_in_bytes):
     except Exception:
         return "N/A"
 
+def get_spelling_suggestion(query):
+    """ഗൂഗിൾ വഴി ശരിയായ സ്പെല്ലിംഗ് ഓട്ടോ-സജസ്റ്റ് ചെയ്യുന്നു"""
+    try:
+        encoded_query = urllib.parse.quote(f"{query} movie")
+        url = f"https://suggestqueries.google.com/complete/search?client=chrome&q={encoded_query}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        req = urllib.request.Request(url, headers=headers)
+        
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data and len(data) > 1 and data[1]:
+                # ആദ്യത്തെ സജഷനിൽ നിന്ന് 'movie' എന്ന വാക്ക് ഒഴിവാക്കി ശരിയായ പേര് എടുക്കുന്നു
+                first_suggestion = data[1][0]
+                clean_name = first_suggestion.lower().replace("movie", "").replace("film", "").strip().title()
+                if clean_name and clean_name.lower() != query.lower():
+                    return clean_name
+    except Exception as e:
+        logger.warning(f"Spelling Suggestion Error: {e}")
+    return None
+
 async def is_subscribed(client, user_id):
-    """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് സുരക്ഷിതമായി പരിശോധിക്കുന്നു"""
+    """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുന്നു"""
     try:
         member = await client.get_chat_member(chat_id=FORCE_SUB_CHAT, user_id=user_id)
         if member.status in [
@@ -93,22 +115,36 @@ async def pm_group_movie_search(client, message):
         logger.error(f"Search Query Error: {e}")
         return
 
-    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
+    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ (Did You Mean സഹിതം)
     if not files:
         if chat_type == enums.ChatType.PRIVATE:
-            google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
-            buttons = [
-                [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
-                [InlineKeyboardButton("🎬 Join Channel / Releases", url=FORCE_SUB_INVITE_LINK)]
-            ]
-            reply_text = (
-                f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-                f"Hey {user_name},\n"
-                f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
-                f"💡 <b>Please check the spelling and send again.</b>\n"
-                f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
-                f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
-            )
+            suggestion = await asyncio.to_thread(get_spelling_suggestion, query)
+            buttons = []
+
+            # ശരിയായ സ്പെല്ലിംഗ് നിർദ്ദേശം ഉണ്ടെങ്കിൽ ഒരു ബട്ടൺ നൽകുന്നു
+            if suggestion:
+                reply_text = (
+                    f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                    f"താങ്കൾ തിരഞ്ഞത്: <code>{query}</code>\n\n"
+                    f"🤔 <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് ഇതാനോ? (Did you mean):</b>\n"
+                    f"👉 <b>{suggestion}</b>\n\n"
+                    f"<i>താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് ആ സിനിമ തിരയാവുന്നതാണ്.</i>"
+                )
+                buttons.append([InlineKeyboardButton(f"🎬 Search: {suggestion}", switch_inline_query_current_chat=suggestion)])
+            else:
+                google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
+                reply_text = (
+                    f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                    f"Hey {user_name},\n"
+                    f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
+                    f"💡 <b>Please check the spelling and send again.</b>\n"
+                    f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
+                    f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
+                )
+                buttons.append([InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)])
+
+            buttons.append([InlineKeyboardButton("📢 Main Channel / Updates", url=FORCE_SUB_INVITE_LINK)])
+
             try:
                 await message.reply_text(
                     text=reply_text,
@@ -123,7 +159,7 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു (ക്ലീൻ ക്യാപ്ഷൻ സഹിതം)
+    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു (ക്ലീൻ ക്യാപ്ഷൻ)
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -176,7 +212,7 @@ async def pm_group_movie_search(client, message):
             parse_mode=enums.ParseMode.HTML
         )
 
-    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അയക്കുന്നു
+    # ലോഗ് ചാനലിലേക്ക് അയക്കുന്നു
     if sent_count > 0:
         try:
             req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
