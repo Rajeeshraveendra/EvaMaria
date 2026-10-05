@@ -18,6 +18,7 @@ from database.connections_mdb import active_connection
 logger = logging.getLogger(__name__)
 
 BATCH_FILES = {}
+TARGET_LOG_CHANNEL = -1003799495012
 
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
@@ -144,6 +145,7 @@ async def start(client, message):
                 return
             os.remove(file)
             BATCH_FILES[file_id] = msgs
+            
         for msg in msgs:
             title = msg.get("title")
             size = get_size(int(msg.get("size", 0)))
@@ -174,6 +176,27 @@ async def start(client, message):
                 logger.warning(e, exc_info=True)
                 continue
             await asyncio.sleep(1) 
+
+        # Batch ലോഗ് അയക്കുന്നു[span_0](start_span)[span_0](end_span)
+        try:
+            u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
+            log_text = (
+                f"📁 <b>#FileSentToPM</b>\n\n"
+                f"👥 <b>Requested In:</b> PM\n"
+                f"👤 <b>User:</b> {u_info}\n"
+                f"({message.from_user.id})\n"
+                f"🔍 <b>Query:</b> <code>Batch Files</code>\n"
+                f"📦 <b>Files Sent:</b> {len(msgs)}"
+            )
+            await client.send_message(
+                chat_id=TARGET_LOG_CHANNEL,
+                text=log_text,
+                parse_mode=enums.ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            logger.error(f"Batch Log Error: {e}")
+
         await sts.delete()
         return
 
@@ -187,6 +210,7 @@ async def start(client, message):
             f_msg_id, l_msg_id, f_chat_id = decoded.split("_", 2)
             protect = "/pbatch" if PROTECT_CONTENT else "batch"
 
+        dstore_count = 0
         async for msg in client.iter_messages(int(f_chat_id), int(l_msg_id), int(f_msg_id)):
             if msg.media:
                 media = getattr(msg, msg.media.value)
@@ -201,9 +225,11 @@ async def start(client, message):
                     f_caption = getattr(msg, 'caption', file_name)
                 try:
                     await msg.copy(message.chat.id, caption=f_caption, protect_content=True if protect == "/pbatch" else False)
+                    dstore_count += 1
                 except FloodWait as e:
                     await asyncio.sleep(e.x)
                     await msg.copy(message.chat.id, caption=f_caption, protect_content=True if protect == "/pbatch" else False)
+                    dstore_count += 1
                 except Exception as e:
                     logger.exception(e)
                     continue
@@ -212,13 +238,36 @@ async def start(client, message):
             else:
                 try:
                     await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
+                    dstore_count += 1
                 except FloodWait as e:
                     await asyncio.sleep(e.x)
                     await msg.copy(message.chat.id, protect_content=True if protect == "/pbatch" else False)
+                    dstore_count += 1
                 except Exception as e:
                     logger.exception(e)
                     continue
-            await asyncio.sleep(1) 
+            await asyncio.sleep(1)
+
+        # DSTORE ലോഗ് അയക്കുന്നു[span_1](start_span)[span_1](end_span)
+        try:
+            u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
+            log_text = (
+                f"📁 <b>#FileSentToPM</b>\n\n"
+                f"👥 <b>Requested In:</b> PM\n"
+                f"👤 <b>User:</b> {u_info}\n"
+                f"({message.from_user.id})\n"
+                f"🔍 <b>Query:</b> <code>Store Link</code>\n"
+                f"📦 <b>Files Sent:</b> {dstore_count}"
+            )
+            await client.send_message(
+                chat_id=TARGET_LOG_CHANNEL,
+                text=log_text,
+                parse_mode=enums.ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            logger.error(f"Dstore Log Error: {e}")
+
         return await sts.delete()
 
     files_ = await get_file_details(file_id)           
@@ -240,6 +289,27 @@ async def start(client, message):
                 except:
                     pass
             await msg.edit_caption(f_caption)
+
+            # Single Base64 ഫയൽ ലോഗ് അയക്കുന്നു[span_2](start_span)[span_2](end_span)
+            try:
+                u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
+                log_text = (
+                    f"📁 <b>#FileSentToPM</b>\n\n"
+                    f"👥 <b>Requested In:</b> PM\n"
+                    f"👤 <b>User:</b> {u_info}\n"
+                    f"({message.from_user.id})\n"
+                    f"🔍 <b>Query:</b> <code>{title}</code>\n"
+                    f"📦 <b>Files Sent:</b> 1"
+                )
+                await client.send_message(
+                    chat_id=TARGET_LOG_CHANNEL,
+                    text=log_text,
+                    parse_mode=enums.ParseMode.HTML,
+                    disable_web_page_preview=True
+                )
+            except Exception as e:
+                logger.error(f"Log Error: {e}")
+
             return
         except:
             return await message.reply('No such file exist.')
@@ -255,12 +325,34 @@ async def start(client, message):
             logger.exception(e)
     if f_caption is None:
         f_caption = f"{files.file_name}"
+
+    # ഉപയോക്താവിന് ഫയൽ അയക്കുന്നു
     await client.send_cached_media(
         chat_id=message.from_user.id,
         file_id=file_id,
         caption=f_caption,
         protect_content=True if pre == 'filep' else False,
     )
+
+    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അപ്‌ഡേറ്റ് അയക്കുന്നു[span_3](start_span)[span_3](end_span)
+    try:
+        u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
+        log_text = (
+            f"📁 <b>#FileSentToPM</b>\n\n"
+            f"👥 <b>Requested In:</b> PM\n"
+            f"👤 <b>User:</b> {u_info}\n"
+            f"({message.from_user.id})\n"
+            f"🔍 <b>Query:</b> <code>{title}</code>\n"
+            f"📦 <b>Files Sent:</b> 1"
+        )
+        await client.send_message(
+            chat_id=TARGET_LOG_CHANNEL,
+            text=log_text,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Log Error: {e}")
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
 async def channel_info(bot, message):
