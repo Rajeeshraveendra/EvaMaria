@@ -9,8 +9,7 @@ from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS
 
 logger = logging.getLogger(__name__)
 
-# group=-1 നൽകുന്നതിലൂടെ ഈ ഫയൽ ആദ്യം പ്രവർത്തിക്കും
-@Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
+@Client.on_message(filters.group & filters.text & filters.incoming)
 async def give_filter(client, message):
     if not message.text:
         return
@@ -34,11 +33,7 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. ഫയലുകൾ കിട്ടിയാൽ:
     if files:
-        # ബാക്കി എല്ലാ ഫയലുകളിലേക്കും ഈ മെസ്സേജ് പോകുന്നത് ഇവിടെവച്ച് തടയുന്നു!
-        message.stop_propagation()
-        
         btn = []
         if settings.get("botpm"):
             btn.append([InlineKeyboardButton("📥 View in PM / ഫയലുകൾ ഇൻബോക്സിൽ കാണുക", url=f"https://t.me/{temp.U_NAME}?start=search_{text}")])
@@ -51,22 +46,6 @@ async def give_filter(client, message):
 
         await message.reply_text(
             f"<b>Here is the result for:</b> <code>{text}</code>",
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
-        )
-        return
-
-    # 2. ഫയലുകൾ ഇല്ലാത്തപ്പോൾ മാത്രം:
-    if not files:
-        # സിനിമ ഇല്ലാത്തപ്പോഴും ആ പഴയ തെറ്റായ മെസ്സേജ് വരാതിരിക്കാൻ സ്റ്റോപ്പ് ചെയ്യുന്നു
-        message.stop_propagation()
-        
-        btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
-        await message.reply_text(
-            f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-            f"ഹലോ {message.from_user.mention},\n"
-            f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് :</b> <code>{text}</code>\n\n"
-            f"💡 ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
