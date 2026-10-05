@@ -15,6 +15,20 @@ TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 
+def get_readable_file_size(size_in_bytes):
+    """ഫയൽ സൈസ് MB / GB ഫോർമാറ്റിലേക്ക് മാറ്റുന്നു"""
+    if not size_in_bytes:
+        return "N/A"
+    try:
+        size = float(size_in_bytes)
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024.0:
+                return f"{size:.2f} {unit}"
+            size /= 1024.0
+        return f"{size:.2f} PB"
+    except Exception:
+        return "N/A"
+
 async def is_subscribed(client, user_id):
     """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് സുരക്ഷിതമായി പരിശോധിക്കുന്നു"""
     try:
@@ -109,18 +123,22 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
+    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു (Clean Custom Caption സഹിതം)
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
+        file_size_raw = getattr(doc, "file_size", None) or (doc.get("file_size") if isinstance(doc, dict) else None)
+        readable_size = get_readable_file_size(file_size_raw)
 
         if not file_id:
             continue
 
+        # ക്ലീൻ കസ്റ്റം ക്യാപ്ഷൻ ലേഔട്ട്
         caption = (
-            f"🎬 <b>File Name:</b> <code>{file_name}</code>\n\n"
+            f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
+            f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
             f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
-            f"📥 <b>ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:</b>\n"
+            f"📥 <b>കൂടുതൽ മൂവികൾക്കായി ജോയിൻ ചെയ്യൂ:</b>\n"
             f"👉 {FORCE_SUB_INVITE_LINK}"
         )
 
@@ -276,6 +294,6 @@ async def cb_help_about_handler(client, query):
             await query.message.edit_text(
                 text=home_text,
                 reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode=enums.ParseMode.HTML,
+                parse_mode=enums.ParseMode.HTML
                 disable_web_page_preview=True
             )
