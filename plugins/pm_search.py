@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import urllib.parse
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserIsBlocked, PeerIdInvalid
@@ -28,7 +29,26 @@ async def pm_movie_sender(client, message):
 
     if not files:
         if message.chat.type == enums.ChatType.PRIVATE:
-            await message.reply_text("❌ സിനിമ ലഭ്യമല്ല! ദയവായി പേര് പരിശോധിച്ച് വീണ്ടും അയക്കുക.")
+            google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
+            buttons = [
+                [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
+                [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/RRK_Movies")]
+            ]
+            user_name = message.from_user.mention if message.from_user else "Friend"
+            reply_text = (
+                f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                f"Hey {user_name},\n"
+                f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
+                f"💡 <b>Please check the spelling and send again.</b>\n"
+                f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
+                f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
+            )
+            await message.reply_text(
+                text=reply_text,
+                quote=True,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
         return
 
     # ഫയലുകൾ എപ്പോഴും ഉപയോക്താവിന്റെ വ്യക്തിഗത ചാറ്റിലേക്ക് (DM) അയക്കുന്നു
