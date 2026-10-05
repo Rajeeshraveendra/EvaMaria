@@ -10,6 +10,9 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 
+# ലോഗ് ചാനൽ ഐഡി നേരിട്ട് ഇൻ്റിജറായി സെറ്റ് ചെയ്യുന്നു
+TARGET_LOG_CHANNEL = -1003799495012
+
 @Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=1)
 async def pm_movie_sender(client, message):
     query = (message.text or "").strip()
@@ -81,7 +84,6 @@ async def pm_movie_sender(client, message):
             sent_count += 1
             await asyncio.sleep(1.2)
         except (UserIsBlocked, PeerIdInvalid):
-            # ബോട്ട് മുൻപ് സ്റ്റാർട്ട് ചെയ്യാത്ത ഉപയോക്താവ് ആണെങ്കിൽ ഗ്രൂപ്പിൽ ബട്ടൺ നൽകുന്നു
             if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
                 btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
                 await message.reply_text(
@@ -93,7 +95,7 @@ async def pm_movie_sender(client, message):
         except Exception as e:
             logger.error(f"File send error: {e}")
 
-    # ഗ്രൂപ്പിൽ ചോദിച്ചതാണെങ്കിൽ, ഫയലുകൾ PM-ലേക്ക് അയച്ച വിവരം ഗ്രൂപ്പിൽ മറുപടിയായി നൽകുന്നു
+    # ഗ്രൂപ്പിൽ ചോദിച്ചതാണെങ്കിൽ വിവരം ഗ്രൂപ്പിൽ അറിയിക്കുന്നു
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
         await message.reply_text(
@@ -102,8 +104,8 @@ async def pm_movie_sender(client, message):
             parse_mode=enums.ParseMode.HTML
         )
 
-    # ലോഗ് ചാനലിലേക്ക് അപ്ഡേറ്റ് അയക്കുന്നു
-    if LOG_CHANNEL and sent_count > 0:
+    # ലോഗ് ചാനലിലേക്ക് ലോഗ് അയക്കുന്നു
+    if sent_count > 0:
         try:
             user_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
             chat_title = message.chat.title if message.chat.title else "PM"
@@ -115,10 +117,11 @@ async def pm_movie_sender(client, message):
                 f"📦 <b>Files Sent:</b> {sent_count}"
             )
             await client.send_message(
-                chat_id=LOG_CHANNEL,
+                chat_id=TARGET_LOG_CHANNEL,
                 text=log_text,
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
-        except Exception:
-            pass
+            print(f">>> Log successfully sent to {TARGET_LOG_CHANNEL} for query: {query}")
+        except Exception as log_err:
+            print(f">>> FAILED to send log to channel: {log_err}")
