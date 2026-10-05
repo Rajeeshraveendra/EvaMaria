@@ -3,7 +3,9 @@ import asyncio
 import urllib.parse
 import urllib.request
 import json
+import re
 import difflib
+import io
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant, FloodWait, InputUserDeactivated
@@ -69,26 +71,33 @@ async def get_db_spelling_suggestion(query):
         logger.warning(f"Suggestion DB Error: {e}")
     return None
 
-def fetch_tmdb_sync(search_term):
-    """TMDb API വഴി സിനിമയുടെ പോസ്റ്ററും വിവരങ്ങളും എടുക്കുന്നു"""
+def clean_movie_title(raw_text):
+    """ഫയൽ പേരുകളിൽ നിന്നുള്ള അനാവശ്യ വാക്കുകൾ നീക്കി യഥാർത്ഥ സിനിമയുടെ പേര് എടുക്കുന്നു"""
+    cleaned = re.sub(r"\[.*?\]|\(.*?\)|@\w+", " ", raw_text)
+    cleaned = cleaned.replace(".", " ").replace("_", " ").replace("-", " ")
+    words = [w for w in cleaned.split() if not any(tag in w.lower() for tag in ["1080p", "720p", "480p", "dvdrip", "hdrip", "hevc", "x264", "x265", "mkv", "mp4"])]
+    return " ".join(words[:2]) if words else raw_text.strip()
+
+def fetch_tmdb_sync(movie_name):
+    """TMDb API വഴി സിനിമയുടെ പോസ്റ്ററും ഡീറ്റെയിൽസും എടുക്കുന്നു"""
     try:
-        clean_name = " ".join(search_term.replace(".", " ").replace("_", " ").split()[:3])
-        encoded = urllib.parse.quote(clean_name)
+        search_query = clean_movie_title(movie_name)
+        encoded = urllib.parse.quote(search_query)
         url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={encoded}"
         
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=4) as resp:
             data = json.loads(resp.read().decode('utf-8'))
             results = data.get("results", [])
             if results:
                 movie = results[0]
-                title = movie.get("title", clean_name)
+                title = movie.get("title", search_query)
                 release_date = movie.get("release_date", "")
                 year = release_date.split("-")[0] if release_date else "N/A"
                 rating = movie.get("vote_average", "N/A")
                 overview = movie.get("overview", "")
-                if overview and len(overview) > 300:
-                    overview = overview[:297] + "..."
+                if overview and len(overview) > 250:
+                    overview = overview[:247] + "..."
                 if not overview:
                     overview = "വിവരണം ലഭ്യമല്ല."
                     
@@ -102,12 +111,11 @@ def fetch_tmdb_sync(search_term):
                     f"📥 <i>സിനിമയുടെ ഫയലുകൾ താഴെ നൽകുന്നു...</i>"
                 )
                 return poster_url, caption
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"TMDb Fetch Error: {e}")
     return None, None
 
 async def get_tmdb_movie_info(query):
-    """ബോട്ടിന്റെ പ്രവർത്തനത്തെ തടസ്സപ്പെടുത്താതെ TMDb റൺ ചെയ്യുന്നു"""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, fetch_tmdb_sync, query)
 
@@ -273,14 +281,17 @@ async def pm_group_movie_search(client, message):
         poster_url, tmdb_caption = await get_tmdb_movie_info(query)
         if tmdb_caption:
             if poster_url:
-                await client.send_photo(chat_id=user_id, photo=poster_url, caption=tmdb_caption, parse_mode=enums.ParseMode.HTML)
+                try:
+                    await client.send_photo(chat_id=user_id, photo=poster_url, caption=tmdb_caption, parse_mode=enums.ParseMode.HTML)
+                except Exception:
+                    await client.send_message(chat_id=user_id, text=tmdb_caption, parse_mode=enums.ParseMode.HTML)
             else:
                 await client.send_message(chat_id=user_id, text=tmdb_caption, parse_mode=enums.ParseMode.HTML)
             await asyncio.sleep(0.5)
     except (UserIsBlocked, PeerIdInvalid):
         blocked_or_not_started = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Poster send failed: {e}")
 
     # 4. ഫയലുകൾ ഉപയോക്താവിന് അയക്കുന്നു
     if not blocked_or_not_started:
