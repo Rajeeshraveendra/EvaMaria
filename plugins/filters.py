@@ -1,18 +1,30 @@
 import io
+import logging
 from pyrogram import filters, Client, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database.ia_filterdb import get_search_results, get_file_details
 from database.connections_mdb import active_connection
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS
-import logging
 
 logger = logging.getLogger(__name__)
 
-@Client.on_message(filters.group & filters.text & filters.incoming)
+# group=-1 നൽകി ഏറ്റവും ഉയർന്ന മുൻഗണന ഉറപ്പാക്കുന്നു
+@Client.on_message(filters.group & filters.text & filters.incoming, group=-1)
 async def give_filter(client, message):
-    if message.text.startswith(("/", "!", "#")):
+    if not message.text:
         return
+
+    text = message.text.strip()
+    if text.startswith(("/", "!", "#")):
+        return
+
+    if len(text) < 2:
+        return
+
+    # മറ്റ് പഴയ ഫയലുകളിലേക്ക് ഈ മെസ്സേജ് പോകുന്നത് ഇവിടെവച്ച് പൂർണ്ണമായി തടയുന്നു!
+    # ഇതോടെ '@AM_ROBOTS' ഫോൾഡറിൽ നിന്നുള്ള 'Movie Not Found' മെസ്സേജ് ഗ്രൂപ്പിൽ വരില്ല.
+    message.stop_propagation()
 
     userid = message.from_user.id if message.from_user else None
     if not userid:
@@ -24,9 +36,9 @@ async def give_filter(client, message):
     if AUTH_CHANNEL and not await is_subscribed(client, message):
         return
 
-    text = message.text.strip()
     files, offset, total_results = await get_search_results(text, max_results=10)
 
+    # സിനിമ ലഭ്യമല്ലെങ്കിൽ മാത്രം സ്പെല്ലിംഗ് ചെക്ക്
     if not files:
         if settings.get("spell_check", True):
             btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
@@ -41,14 +53,15 @@ async def give_filter(client, message):
         return
 
     btn = []
-    # Bot PM settings അനുസരിച്ച് ബട്ടൺ നിർമ്മിക്കുന്നു
+    # ഗ്രൂപ്പിലെ 'Bot PM' സെറ്റിംഗ്സ് നോക്കുന്നു
     if settings.get("botpm"):
-        btn.append([InlineKeyboardButton("📥 View in PM / ഫയലുകൾ കാണാൻ ഇവിടെ ക്ലിക്ക് ചെയ്യുക", url=f"https://t.me/{temp.U_NAME}?start=search_{text}")])
+        btn.append([InlineKeyboardButton("📥 View in PM / ഫയലുകൾ ഇൻബോക്സിൽ കാണുക", url=f"https://t.me/{temp.U_NAME}?start=search_{text}")])
     else:
         for file in files:
             title = file.file_name
             size = get_size(file.file_size)
-            btn.append([InlineKeyboardButton(f"🎬 {title} [{size}]", url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+            f_caption = f"🎬 {title} [{size}]"
+            btn.append([InlineKeyboardButton(f_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
 
     await message.reply_text(
         f"<b>Here is the result for:</b> <code>{text}</code>",
