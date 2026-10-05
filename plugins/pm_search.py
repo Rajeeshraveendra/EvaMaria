@@ -31,6 +31,18 @@ def get_readable_file_size(size_in_bytes):
     except Exception:
         return "N/A"
 
+async def auto_delete_messages(user_msg, bot_msg, delay=60):
+    """നിശ്ചിത സമയത്തിന് ശേഷം തെറ്റായ റിക്വസ്റ്റും ബോട്ടിന്റെ മറുപടിയും തനിയെ ഡിലീറ്റ് ചെയ്യുന്നു"""
+    await asyncio.sleep(delay)
+    try:
+        await bot_msg.delete()
+    except Exception:
+        pass
+    try:
+        await user_msg.delete()
+    except Exception:
+        pass
+
 async def get_db_spelling_suggestion(query):
     """ഡാറ്റാബേസിൽ നിന്ന് ഏറ്റവും അനുയോജ്യമായ സിനിമയുടെ പേര് കണ്ടെത്തുന്നു"""
     try:
@@ -165,47 +177,46 @@ async def pm_group_movie_search(client, message):
 
     # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
     if not files:
-        if chat_type == enums.ChatType.PRIVATE:
-            suggestion = await get_db_spelling_suggestion(query)
-            buttons = []
+        suggestion = await get_db_spelling_suggestion(query)
+        buttons = []
+        req_data = f"req_{query[:40]}"
 
-            # 64 bytes പരിധി മറികടക്കാൻ callback_data ചെറുതാക്കുന്നു
-            req_data = f"req_{query[:40]}"
+        if suggestion and suggestion.lower() != query.lower():
+            reply_text = (
+                f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                f"താങ്കൾ തിരഞ്ഞത്: <code>{query}</code>\n\n"
+                f"🤔 <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് ഇതാണോ? (Did you mean):</b>\n"
+                f"👉 <b>{suggestion}</b>\n\n"
+                f"<i>താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് സിനിമ തിരയാവുന്നതാണ്. അല്ലെങ്കിൽ അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്യാം.</i>\n\n"
+                f"⏳ <i>ഈ മെസ്സേജ് 60 സെക്കൻഡിൽ തനിയെ ഡിലീറ്റ് ആകുന്നതാണ്.</i>"
+            )
+            buttons.append([InlineKeyboardButton(f"🎬 Search: {suggestion}", switch_inline_query_current_chat=suggestion)])
+        else:
+            google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
+            reply_text = (
+                f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+                f"Hey {user_name},\n"
+                f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
+                f"💡 <b>Please check the spelling and send again.</b>\n"
+                f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
+                f"👉 സിനിമ ലഭ്യമല്ലെങ്കിൽ താഴെയുള്ള ബട്ടൺ വഴി അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്യാം.\n\n"
+                f"⏳ <i>ഈ മെസ്സേജ് 60 സെക്കൻഡിൽ തനിയെ ഡിലീറ്റ് ആകുന്നതാണ്.</i>"
+            )
+            buttons.append([InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)])
 
-            if suggestion and suggestion.lower() != query.lower():
-                reply_text = (
-                    f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-                    f"താങ്കൾ തിരഞ്ഞത്: <code>{query}</code>\n\n"
-                    f"🤔 <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് ഇതാണോ? (Did you mean):</b>\n"
-                    f"👉 <b>{suggestion}</b>\n\n"
-                    f"<i>താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് സിനിമ തിരയാവുന്നതാണ്. അല്ലെങ്കിൽ അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്യാം.</i>"
-                )
-                buttons.append([InlineKeyboardButton(f"🎬 Search: {suggestion}", switch_inline_query_current_chat=suggestion)])
-            else:
-                google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
-                reply_text = (
-                    f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-                    f"Hey {user_name},\n"
-                    f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
-                    f"💡 <b>Please check the spelling and send again.</b>\n"
-                    f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
-                    f"👉 സിനിമ ലഭ്യമല്ലെങ്കിൽ താഴെയുള്ള ബട്ടൺ വഴി അഡ്മിനോട് റിക്വസ്റ്റ് ചെയ്യാം."
-                )
-                buttons.append([InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)])
+        buttons.append([InlineKeyboardButton("📩 Request to Admin / റിക്വസ്റ്റ് ചെയ്യുക", callback_data=req_data)])
+        buttons.append([InlineKeyboardButton("📢 Main Channel / Updates", url=FORCE_SUB_INVITE_LINK)])
 
-            # റിക്വസ്റ്റ് ബട്ടണും മെയിൻ ചാനൽ ബട്ടണും
-            buttons.append([InlineKeyboardButton("📩 Request to Admin / റിക്വസ്റ്റ് ചെയ്യുക", callback_data=req_data)])
-            buttons.append([InlineKeyboardButton("📢 Main Channel / Updates", url=FORCE_SUB_INVITE_LINK)])
-
-            try:
-                await message.reply_text(
-                    text=reply_text,
-                    quote=True,
-                    reply_markup=InlineKeyboardMarkup(buttons),
-                    parse_mode=enums.ParseMode.HTML
-                )
-            except Exception:
-                pass
+        try:
+            not_found_msg = await message.reply_text(
+                text=reply_text,
+                quote=True,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+            asyncio.create_task(auto_delete_messages(message, not_found_msg, delay=60))
+        except Exception:
+            pass
         return
 
     sent_count = 0
@@ -255,6 +266,34 @@ async def pm_group_movie_search(client, message):
             )
         return
 
+    # ഫയലുകൾ അയച്ചു കഴിഞ്ഞ ഉടൻ PM-ലേക്ക് കസ്റ്റം നന്ദി മെസ്സേജ്
+    if sent_count > 0:
+        thanks_text = (
+            f"🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
+            f"🎉 <i>നിങ്ങൾ ചോദിച്ച സിനിമയുടെ ഫയലുകൾ തരാൻ കഴിഞ്ഞതിൽ വളരെ സന്തോഷം.</i>\n\n"
+            f"💡 <i>നിങ്ങളുടെ വിലയേറിയ നിർദ്ദേശങ്ങളും തെറ്റുകളും (Suggestions & Mistakes) ഉണ്ടെങ്കിൽ അഡ്മിനെ അറിയിക്കുക.</i>\n\n"
+            f"💖 <i>RRK Movies AutoBot ഉപയോഗിച്ചതിന് നന്ദി. ഹാപ്പി വാച്ചിംഗ്!</i>\n\n"
+            f"കൂടുതൽ പുതിയ സിനിമകൾക്കും അപ്‌ഡേറ്റുകൾക്കുമായി ഞങ്ങളുടെ ചാനലിൽ ജോയിൻ ചെയ്യുക."
+        )
+        thanks_buttons = [
+            [
+                InlineKeyboardButton("📢 Main Channel", url=FORCE_SUB_INVITE_LINK),
+                InlineKeyboardButton("💬 WhatsApp Admin", url="https://wa.me/971562769519")
+            ],
+            [
+                InlineKeyboardButton("🔍 Search More Movies", switch_inline_query_current_chat="")
+            ]
+        ]
+        try:
+            await client.send_message(
+                chat_id=user_id,
+                text=thanks_text,
+                reply_markup=InlineKeyboardMarkup(thanks_buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as err:
+            logger.warning(f"Thanks msg error: {err}")
+
     # ഗ്രൂപ്പിലാണെങ്കിൽ അറിയിപ്പ് നൽകുന്നു
     if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
@@ -294,7 +333,6 @@ async def movie_request_handler(client, query):
     user = query.from_user
     movie_name = query.data.split("req_", 1)[1]
 
-    # ലോഗ് ചാനലിലേക്ക് റിക്വസ്റ്റ് അയക്കുന്നു
     try:
         user_link = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
         username_str = f"(@{user.username})" if user.username else ""
@@ -312,10 +350,8 @@ async def movie_request_handler(client, query):
     except Exception as e:
         logger.error(f"Request Log Error: {e}")
 
-    # ഉപയോക്താവിന് പോപ്പ്-അപ്പ് അലേർട്ട് നൽകുന്നു
     await query.answer("✅ താങ്കളുടെ റിക്വസ്റ്റ് അഡ്മിന് ലഭിച്ചിട്ടുണ്ട്! സിനിമ ഉടൻ അപ്‌ലോഡ് ചെയ്യുന്നതാണ്.", show_alert=True)
 
-    # ബട്ടൺ 'Requested' എന്ന് അപ്‌ഡേറ്റ് ചെയ്യുന്നു
     try:
         new_buttons = []
         for row in query.message.reply_markup.inline_keyboard:
