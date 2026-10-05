@@ -1,9 +1,12 @@
+import io
+import re
+import urllib.parse
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong, PeerIdInvalid
 from info import ADMINS, LOG_CHANNEL, SUPPORT_CHAT, MELCOW_NEW_USERS
 from database.users_chats_db import db
-from database.ia_filterdb import Media
+from database.ia_filterdb import Media, get_search_results
 from utils import get_size, temp, get_settings
 from Script import script
 from pyrogram.errors import ChatAdminRequired
@@ -45,7 +48,7 @@ async def save_group(bot, message):
             reply_markup=reply_markup)
     else:
         settings = await get_settings(message.chat.id)
-        if settings["welcome"]:
+        if settings.get("welcome"):
             for u in message.new_chat_members:
                 if (temp.MELCOW).get('welcome') is not None:
                     try:
@@ -244,3 +247,48 @@ async def list_chats(bot, message):
         with open('chats.txt', 'w+') as outfile:
             outfile.write(out)
         await message.reply_document('chats.txt', caption="List Of Chats")
+
+# ----------------- ഗ്രൂപ്പ് സ്പെല്ലിംഗ് ചെക്ക് ഹാൻഡ്‌ലർ -----------------
+
+@Client.on_message(filters.group & filters.text & ~filters.command(['start', 'help', 'scrape', 'ott', 'stats', 'filter', 'del', 'ban', 'unban', 'enable', 'disable', 'leave', 'users', 'chats']), group=1)
+async def auto_spell_check_group(bot, message):
+    if not message.text or message.text.startswith("/"):
+        return
+    if message.from_user and message.from_user.is_bot:
+        return
+
+    query = message.text.strip()
+    if len(query) < 2:
+        return
+
+    # ഡാറ്റാബേസിൽ ഫയലുകൾ ഉണ്ടോ എന്ന് പരിശോധിക്കുന്നു
+    try:
+        files, offset, total_results = await get_search_results(message.chat.id, query)
+    except Exception:
+        files = []
+
+    # ഫയൽ ലഭ്യമല്ലെങ്കിൽ ഇംഗ്ലീഷിലും മലയാളത്തിലും ഒരുമിച്ച് റിപ്ലൈ നൽകുന്നു
+    if not files:
+        google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
+        buttons = [
+            [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
+            [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/RRK_Movies")]
+        ]
+        user_name = message.from_user.mention if message.from_user else "Friend"
+        reply_text = (
+            f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+            f"Hey {user_name},\n"
+            f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
+            f"💡 <b>Please check the spelling and send again.</b>\n"
+            f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
+            f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
+        )
+        try:
+            await message.reply_text(
+                text=reply_text,
+                quote=True,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as e:
+            print(f"[SpellCheck Reply Error]: {e}")
