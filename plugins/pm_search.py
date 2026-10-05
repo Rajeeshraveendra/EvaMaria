@@ -32,7 +32,7 @@ async def pm_movie_sender(client, message):
             google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
             buttons = [
                 [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
-                [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/RRK_Movies")]
+                [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/+NoL3OkqPwBtiZjY0")]
             ]
             user_name = message.from_user.mention if message.from_user else "Friend"
             reply_text = (
