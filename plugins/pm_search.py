@@ -1,9 +1,6 @@
 import logging
 import asyncio
 import urllib.parse
-import urllib.request
-import json
-import re
 import difflib
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -19,9 +16,6 @@ TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 
 FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
-
-# TMDb Key
-TMDB_KEY = "2ff903dc084f7b2c5d4b53754e38c92a"
 
 def get_readable_file_size(size_in_bytes):
     """ഫയൽ സൈസ് MB / GB ഫോർമാറ്റിലേക്ക് മാറ്റുന്നു"""
@@ -69,48 +63,6 @@ async def get_db_spelling_suggestion(query):
     except Exception as e:
         logger.warning(f"Suggestion DB Error: {e}")
     return None
-
-def clean_movie_title(raw_text):
-    """സിനിമയുടെ പേര് മാത്രം വൃത്തിയായി എടുക്കുന്നു"""
-    cleaned = re.sub(r"\[.*?\]|\(.*?\)|@\w+", " ", raw_text)
-    cleaned = cleaned.replace(".", " ").replace("_", " ").replace("-", " ")
-    words = [w for w in cleaned.split() if not any(tag in w.lower() for tag in ["1080p", "720p", "480p", "dvdrip", "hdrip", "hevc", "x264", "x265", "mkv", "mp4"])]
-    return words[0] if words else raw_text.strip()
-
-def get_movie_poster_and_info(movie_name):
-    """TMDb-ൽ നിന്ന് നേരിട്ടുള്ള ഇമേജ് ലിങ്കും ഡീറ്റെയിൽസും എടുക്കുന്നു"""
-    try:
-        name = clean_movie_title(movie_name)
-        url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_KEY}&query={urllib.parse.quote(name)}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=3) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            results = data.get("results", [])
-            if results:
-                m = results[0]
-                title = m.get("title", name)
-                date = m.get("release_date", "")
-                year = date.split("-")[0] if date else "N/A"
-                vote = m.get("vote_average", "N/A")
-                overview = m.get("overview", "")
-                if overview and len(overview) > 250:
-                    overview = overview[:247] + "..."
-                if not overview:
-                    overview = "വിവരണം ലഭ്യമല്ല."
-
-                poster_path = m.get("poster_path")
-                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
-
-                caption = (
-                    f"🎬 <b>{title} ({year})</b>\n\n"
-                    f"⭐ <b>TMDb Rating:</b> <code>{vote}/10</code>\n"
-                    f"📖 <b>Story:</b> <i>{overview}</i>\n\n"
-                    f"📥 <i>സിനിമയുടെ ഫയലുകൾ താഴെ നൽകുന്നു...</i>"
-                )
-                return poster_url, caption
-    except Exception as e:
-        logger.warning(f"Poster Fetch Issue: {e}")
-    return None, None
 
 async def is_subscribed(client, user_id):
     """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുന്നു"""
@@ -269,59 +221,38 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. സിനിമയുടെ പോസ്റ്ററും ഡീറ്റെയിൽസും അയക്കുന്നു
-    loop = asyncio.get_running_loop()
-    poster_url, caption_info = await loop.run_in_executor(None, get_movie_poster_and_info, query)
+    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
+    for doc in files:
+        file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
+        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
+        file_size_raw = getattr(doc, "file_size", None) or (doc.get("file_size") if isinstance(doc, dict) else None)
+        readable_size = get_readable_file_size(file_size_raw)
 
-    if caption_info:
+        if not file_id:
+            continue
+
+        caption = (
+            f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
+            f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
+            f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
+            f"📥 <b>കൂടുതൽ മൂവികൾക്കായി ജോയിൻ ചെയ്യൂ:</b>\n"
+            f"👉 {FORCE_SUB_INVITE_LINK}"
+        )
+
         try:
-            if poster_url:
-                await client.send_photo(chat_id=user_id, photo=poster_url, caption=caption_info, parse_mode=enums.ParseMode.HTML)
-            else:
-                await client.send_message(chat_id=user_id, text=caption_info, parse_mode=enums.ParseMode.HTML)
-            await asyncio.sleep(0.5)
+            await client.send_cached_media(
+                chat_id=user_id,
+                file_id=file_id,
+                caption=caption,
+                parse_mode=enums.ParseMode.HTML
+            )
+            sent_count += 1
+            await asyncio.sleep(1.0)
         except (UserIsBlocked, PeerIdInvalid):
             blocked_or_not_started = True
-        except Exception:
-            # ഫോട്ടോ ലിങ്ക് ടെലിഗ്രാം റിജക്ട് ചെയ്താൽ വിവരങ്ങൾ മാത്രം അയക്കുന്നു
-            try:
-                await client.send_message(chat_id=user_id, text=caption_info, parse_mode=enums.ParseMode.HTML)
-            except Exception:
-                pass
-
-    # 4. ഫയലുകൾ ഉപയോക്താവിന് അയക്കുന്നു
-    if not blocked_or_not_started:
-        for doc in files:
-            file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
-            file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
-            file_size_raw = getattr(doc, "file_size", None) or (doc.get("file_size") if isinstance(doc, dict) else None)
-            readable_size = get_readable_file_size(file_size_raw)
-
-            if not file_id:
-                continue
-
-            caption = (
-                f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
-                f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
-                f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
-                f"📥 <b>കൂടുതൽ മൂവികൾക്കായി ജോയിൻ ചെയ്യൂ:</b>\n"
-                f"👉 {FORCE_SUB_INVITE_LINK}"
-            )
-
-            try:
-                await client.send_cached_media(
-                    chat_id=user_id,
-                    file_id=file_id,
-                    caption=caption,
-                    parse_mode=enums.ParseMode.HTML
-                )
-                sent_count += 1
-                await asyncio.sleep(1.0)
-            except (UserIsBlocked, PeerIdInvalid):
-                blocked_or_not_started = True
-                break
-            except Exception as e:
-                logger.error(f"Send File Error: {e}")
+            break
+        except Exception as e:
+            logger.error(f"Send File Error: {e}")
 
     # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
@@ -334,7 +265,7 @@ async def pm_group_movie_search(client, message):
             )
         return
 
-    # 5. ഫയലുകൾ അയച്ചു കഴിഞ്ഞ ഉടൻ PM-ലേക്ക് നന്ദി മെസ്സേജ്
+    # 4. ഫയലുകൾ അയച്ചു കഴിഞ്ഞ ഉടൻ PM-ലേക്ക് താങ്ക്സ് മെസ്സേജ്
     if sent_count > 0:
         thanks_text = (
             f"🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
