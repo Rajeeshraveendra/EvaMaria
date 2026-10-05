@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import urllib.parse
+import aiohttp
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserIsBlocked, PeerIdInvalid
@@ -9,8 +10,24 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 
-# ചാനൽ യൂസർനെയിം നേരിട്ട് നൽകുന്നു
 TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
+TMDB_API_KEY = "2e7a02b66d8e2023cb2bcbb678b8e0b2"
+
+async def get_hd_poster(movie_title):
+    """TMDb-യിൽ നിന്ന് ഒറിജിനൽ ക്വാളിറ്റി HD പോസ്റ്റർ എടുക്കുന്നു"""
+    try:
+        clean_title = urllib.parse.quote(movie_title.strip())
+        url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={clean_title}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    results = data.get("results")
+                    if results and results[0].get("poster_path"):
+                        return f"https://image.tmdb.org/t/p/original{results[0].get('poster_path')}"
+    except Exception as e:
+        logger.error(f"Error fetching HD poster: {e}")
+    return None
 
 @Client.on_message((filters.private | filters.group) & filters.text & ~filters.command(["start", "help", "about", "users", "stats", "connect", "filter", "del", "delall", "channel", "logs", "delete", "deleteall", "settings", "set_template"]), group=-1)
 async def pm_group_movie_search(client, message):
@@ -62,38 +79,60 @@ async def pm_group_movie_search(client, message):
                 pass
         return
 
-    # ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
     sent_count = 0
     blocked_or_not_started = False
 
-    for doc in files:
-        file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
-        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
-
-        if not file_id:
-            continue
-
-        caption = (
-            f"🎬 <b>File Name:</b> <code>{file_name}</code>\n\n"
-            f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
-            f"📥 <b>ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:</b>\n"
-            f"👉 https://t.me/+NoL3OkqPwBtiZjY0"
-        )
-
-        try:
-            await client.send_cached_media(
+    # 1. ആദ്യം സിനിമയുടെ HD പോസ്റ്റർ യൂസർക്ക് അയക്കുന്നു
+    try:
+        poster_url = await get_hd_poster(query)
+        if poster_url:
+            poster_caption = (
+                f"🎬 <b>{query.title()}</b>\n\n"
+                f"⚡ <b>Uploaded By:</b> @RRK_Movies\n"
+                f"📥 ഫയലുകൾ താഴെ വരുന്നുണ്ട്, ദയവായി കാത്തിരിക്കുക..."
+            )
+            await client.send_photo(
                 chat_id=user_id,
-                file_id=file_id,
-                caption=caption,
+                photo=poster_url,
+                caption=poster_caption,
                 parse_mode=enums.ParseMode.HTML
             )
-            sent_count += 1
-            await asyncio.sleep(1.2)
-        except (UserIsBlocked, PeerIdInvalid):
-            blocked_or_not_started = True
-            break
-        except Exception as e:
-            logger.error(f"Send File Error: {e}")
+            await asyncio.sleep(1)
+    except (UserIsBlocked, PeerIdInvalid):
+        blocked_or_not_started = True
+    except Exception as e:
+        logger.warning(f"Could not send poster: {e}")
+
+    # 2. തുടർന്ന് സിനിമയുടെ ഫയലുകൾ അയക്കുന്നു
+    if not blocked_or_not_started:
+        for doc in files:
+            file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
+            file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
+
+            if not file_id:
+                continue
+
+            caption = (
+                f"🎬 <b>File Name:</b> <code>{file_name}</code>\n\n"
+                f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
+                f"📥 <b>ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:</b>\n"
+                f"👉 https://t.me/+NoL3OkqPwBtiZjY0"
+            )
+
+            try:
+                await client.send_cached_media(
+                    chat_id=user_id,
+                    file_id=file_id,
+                    caption=caption,
+                    parse_mode=enums.ParseMode.HTML
+                )
+                sent_count += 1
+                await asyncio.sleep(1.2)
+            except (UserIsBlocked, PeerIdInvalid):
+                blocked_or_not_started = True
+                break
+            except Exception as e:
+                logger.error(f"Send File Error: {e}")
 
     # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
@@ -115,7 +154,7 @@ async def pm_group_movie_search(client, message):
             parse_mode=enums.ParseMode.HTML
         )
 
-    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായ ഫോർമാറ്റിൽ അയക്കുന്നു
+    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അയക്കുന്നു
     if sent_count > 0:
         try:
             req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
