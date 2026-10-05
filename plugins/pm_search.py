@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 
 TARGET_LOG_CHANNEL = "@rrk_temp_db_123"
 
-# നൽകിയ ഗ്രൂപ്പ് ഐഡിയും ഇൻവൈറ്റ് ലിങ്കും
+# Nalkiya Group ID-yum Invite Link-um
 FORCE_SUB_CHAT = -1001452215783
 FORCE_SUB_INVITE_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 
 async def is_subscribed(client, user_id):
-    """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് സുരക്ഷിതമായി പരിശോധിക്കുന്നു"""
+    """User main group-il join cheythittundo ennu check cheyyunnu"""
     try:
         member = await client.get_chat_member(chat_id=FORCE_SUB_CHAT, user_id=user_id)
         if member.status in [
@@ -47,7 +47,7 @@ async def pm_group_movie_search(client, message):
     user_name = message.from_user.mention
     chat_type = message.chat.type
 
-    # 1. FORCE SUBSCRIBE പരിശോധിക്കുന്നു (Live Mode)
+    # 1. FORCE SUBSCRIBE CHECK
     subscribed = await is_subscribed(client, user_id)
 
     if not subscribed:
@@ -71,7 +71,7 @@ async def pm_group_movie_search(client, message):
             pass
         return
 
-    # 2. ഡാറ്റാബേസിൽ നിന്ന് ഫയലുകൾ തിരയുന്നു
+    # 2. Database-il ninnu file thirayunnu
     try:
         files, offset, total_results = await get_search_results(query, max_results=10)
     except Exception as e:
@@ -79,7 +79,7 @@ async def pm_group_movie_search(client, message):
         logger.error(f"Search Query Error: {e}")
         return
 
-    # ഫയലുകൾ ലഭ്യമല്ലെങ്കിൽ
+    # Files labhyamallatha avasthayil
     if not files:
         if chat_type == enums.ChatType.PRIVATE:
             google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
@@ -109,7 +109,7 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
+    # 3. User-kku files ayakkunnu
     for doc in files:
         file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
         file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
@@ -139,7 +139,7 @@ async def pm_group_movie_search(client, message):
         except Exception as e:
             logger.error(f"Send File Error: {e}")
 
-    # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
+    # User bot PM-il start cheythittillenkil
     if blocked_or_not_started:
         if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
             btn = [[InlineKeyboardButton("🍿 Start Bot in PM", url=f"https://t.me/{temp.U_NAME}?start=start")]]
@@ -150,7 +150,7 @@ async def pm_group_movie_search(client, message):
             )
         return
 
-    # ഗ്രൂപ്പിലാണെങ്കിൽ അറിയിപ്പ് നൽകുന്നു
+    # Group-ilaanenkil ariyippu nalkunnu
     if chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] and sent_count > 0:
         btn = [[InlineKeyboardButton("📥 Check Your PM", url=f"https://t.me/{temp.U_NAME}")]]
         await message.reply_text(
@@ -159,7 +159,7 @@ async def pm_group_movie_search(client, message):
             parse_mode=enums.ParseMode.HTML
         )
 
-    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അയക്കുന്നു
+    # Log channel-ilekku #FileSentToPM ayakkunnu
     if sent_count > 0:
         try:
             req_in = message.chat.title if (message.chat and message.chat.title) else "PM"
@@ -182,3 +182,68 @@ async def pm_group_movie_search(client, message):
         except Exception as log_err:
             print(f"[LOG ERROR DETAILED]: {repr(log_err)}")
             logger.error(f"Channel Log Sending Failed: {log_err}")
+
+# Help, About, Home buttons-nte Callback Query Handler
+@Client.on_callback_query(filters.regex("^(help|about|home)$"))
+async def cb_help_about_handler(client, query):
+    data = query.data
+    user_name = query.from_user.mention
+
+    if data == "help":
+        help_text = (
+            f"ℹ <b>സഹായം / Help Guide</b>\n\n"
+            f"ഹലോ {user_name},\n\n"
+            f"1. സിനിമ ലഭിക്കാൻ സിനിമയുടെ പേര് കൃത്യമായ സ്പെല്ലിംഗിൽ അയക്കുക.\n"
+            f"2. ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യുന്നതിന് മുൻപ് ഞങ്ങളുടെ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിരിക്കണം.\n"
+            f"3. എന്തെങ്കിലും സംശയങ്ങളുണ്ടെങ്കിൽ അഡ്മിനുമായി ബന്ധപ്പെടുക."
+        )
+        buttons = [
+            [InlineKeyboardButton("📢 Main Group", url=FORCE_SUB_INVITE_LINK)],
+            [InlineKeyboardButton("🔙 Back / പിന്നോട്ട്", callback_data="home")]
+        ]
+        await query.message.edit_text(
+            text=help_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+
+    elif data == "about":
+        about_text = (
+            f"🤖 <b>About Bot / ബോട്ടിനെക്കുറിച്ച്</b>\n\n"
+            f"⚡ <b>Bot Name :</b> RRK Movies AutoBot\n"
+            f"🎬 <b>Channel :</b> @RRK_Movies\n"
+            f"🛠 <b>Language :</b> Python 3\n"
+            f"📦 <b>Database :</b> MongoDB\n\n"
+            f"<i>HD സിനിമകൾ വേഗത്തിൽ ലഭ്യമാക്കാൻ നിർമ്മിച്ചത്.</i>"
+        )
+        buttons = [
+            [InlineKeyboardButton("📢 Join Channel", url=FORCE_SUB_INVITE_LINK)],
+            [InlineKeyboardButton("🔙 Back / പിന്നോട്ട്", callback_data="home")]
+        ]
+        await query.message.edit_text(
+            text=about_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+
+    elif data == "home":
+        home_text = (
+            f"തിയേറ്റർ പ്രിന്റുകളോട് വിട പറയാം! ഇനി സിനിമകൾ കാണാം Full HD ക്വാളിറ്റിയിൽ മാത്രം. 🍿🎬\n\n"
+            f"✅ <b>എന്തുകൊണ്ട് ഞങ്ങളുടെ ഗ്രൂപ്പ്?</b>\n\n"
+            f"🚫 തിയേറ്റർ പ്രിന്റുകൾ ഇല്ല\n"
+            f"💎 ശുദ്ധമായ HD മൂവീസ് മാത്രം\n"
+            f"⚡ ഫാസ്റ്റ് ഡൗൺലോഡ് ലിങ്കുകൾ\n\n"
+            f"📥 ഇപ്പോൾ തന്നെ ജോയിൻ ചെയ്യൂ:\n"
+            f"👉 {FORCE_SUB_INVITE_LINK}"
+        )
+        buttons = [
+            [InlineKeyboardButton("➕ Add Me To Your Groups ➕", url=f"http://t.me/{temp.U_NAME}?startgroup=true")],
+            [InlineKeyboardButton("🔍 Search", switch_inline_query_current_chat=""), InlineKeyboardButton("🤖 Updates", url=FORCE_SUB_INVITE_LINK)],
+            [InlineKeyboardButton("ℹ Help", callback_data="help"), InlineKeyboardButton("😊 About", callback_data="about")]
+        ]
+        await query.message.edit_text(
+            text=home_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
