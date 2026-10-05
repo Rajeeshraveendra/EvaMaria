@@ -66,13 +66,12 @@ async def get_db_spelling_suggestion(query):
     return None
 
 async def fetch_imdb_info(query):
-    """OMDb API വഴി സിനിമയുടെ വിവരങ്ങളും പോസ്റ്ററും ശേഖരിക്കുന്നു"""
-    clean_query = query.split()[0:3]
-    search_term = " ".join(clean_query)
-    api_url = f"https://www.omdbapi.com/?t={urllib.parse.quote(search_term)}&apikey=trilogy"
+    """OMDb API വഴി സിനിമയുടെ വിവരങ്ങൾ സുരക്ഷിതമായി എടുക്കുന്നു (ടൈംഔട്ട് തടസ്സപ്പെടില്ല)"""
     try:
+        clean_name = query.split()[0]
+        api_url = f"https://www.omdbapi.com/?t={urllib.parse.quote(clean_name)}&apikey=b89bb73f"
         async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if data.get("Response") == "True":
@@ -95,8 +94,8 @@ async def fetch_imdb_info(query):
                             f"📥 <i>സിനിമയുടെ ഫയലുകൾ താഴെ നൽകുന്നു...</i>"
                         )
                         return poster, caption
-    except Exception as e:
-        logger.warning(f"IMDb API Error: {e}")
+    except Exception:
+        pass
     return None, None
 
 async def is_subscribed(client, user_id):
@@ -118,7 +117,6 @@ async def is_subscribed(client, user_id):
 
 @Client.on_message(filters.command("broadcast") & filters.user(ADMINS))
 async def admin_broadcast_handler(client, message):
-    """അഡ്മിന് എല്ലാ ബോട്ട് ഉപയോക്താക്കൾക്കും സന്ദേശങ്ങൾ അയക്കാനുള്ള സംവിധാനം"""
     if not message.reply_to_message:
         await message.reply_text("⚠ <b>ഉപയോഗിക്കേണ്ട വിധം:</b>\nഎല്ലാ യൂസർമാർക്കും അയക്കേണ്ട മെസ്സേജിന് റിപ്ലൈ ആയി <code>/broadcast</code> എന്ന് അയക്കുക.")
         return
@@ -159,7 +157,7 @@ async def admin_broadcast_handler(client, message):
         f"📬 <b>വിജയകരമായി അയച്ചത്:</b> <code>{successful}</code>\n"
         f"🚫 <b>ബ്ലോക്ക് ചെയ്ത അക്കൗണ്ടുകൾ:</b> <code>{blocked}</code>\n"
         f"❌ <b>ഡിലീറ്റ് ചെയ്ത അക്കൗണ്ടുകൾ:</b> <code>{deleted}</code>\n"
-        f"⚠️ <b>പരാജയപ്പെട്ടവ:</b> <code>{failed}</code>"
+        f"⚠️️ <b>പരാജയപ്പെട്ടവ:</b> <code>{failed}</code>"
     )
     await status_msg.edit_text(report, parse_mode=enums.ParseMode.HTML)
 
@@ -257,21 +255,21 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. സിനിമയുടെ IMDb വിവരങ്ങളും പോസ്റ്ററും PM-ലേക്ക് അയക്കുന്നു
-    poster_url, imdb_caption = await fetch_imdb_info(query)
-    if imdb_caption:
-        try:
+    # 3. IMDb കാർഡ് അയക്കുന്നു (എന്തെങ്കിലും തകരാർ ഉണ്ടായാലും ഫയലുകൾ മുടങ്ങില്ല)
+    try:
+        poster_url, imdb_caption = await fetch_imdb_info(query)
+        if imdb_caption:
             if poster_url:
                 await client.send_photo(chat_id=user_id, photo=poster_url, caption=imdb_caption, parse_mode=enums.ParseMode.HTML)
             else:
                 await client.send_message(chat_id=user_id, text=imdb_caption, parse_mode=enums.ParseMode.HTML)
-            await asyncio.sleep(1)
-        except (UserIsBlocked, PeerIdInvalid):
-            blocked_or_not_started = True
-        except Exception as e:
-            logger.warning(f"IMDb Send Error: {e}")
+            await asyncio.sleep(0.5)
+    except (UserIsBlocked, PeerIdInvalid):
+        blocked_or_not_started = True
+    except Exception:
+        pass
 
-    # 4. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
+    # 4. ഫയലുകൾ ഉപയോക്താവിന് അയക്കുന്നു
     if not blocked_or_not_started:
         for doc in files:
             file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
@@ -298,7 +296,7 @@ async def pm_group_movie_search(client, message):
                     parse_mode=enums.ParseMode.HTML
                 )
                 sent_count += 1
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(1.0)
             except (UserIsBlocked, PeerIdInvalid):
                 blocked_or_not_started = True
                 break
@@ -316,7 +314,7 @@ async def pm_group_movie_search(client, message):
             )
         return
 
-    # ഫയലുകൾ അയച്ചു കഴിഞ്ഞ ഉടൻ PM-ലേക്ക് കസ്റ്റം നന്ദി മെസ്സേജ്
+    # 5. ഫയലുകൾ അയച്ചു കഴിഞ്ഞ ഉടൻ PM-ലേക്ക് കസ്റ്റം നന്ദി മെസ്സേജ്
     if sent_count > 0:
         thanks_text = (
             f"🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
@@ -372,9 +370,7 @@ async def pm_group_movie_search(client, message):
                 parse_mode=enums.ParseMode.HTML,
                 disable_web_page_preview=True
             )
-            print(f"[LOG SUCCESS] Sent log to {TARGET_LOG_CHANNEL}")
         except Exception as log_err:
-            print(f"[LOG ERROR DETAILED]: {repr(log_err)}")
             logger.error(f"Channel Log Sending Failed: {log_err}")
 
 # Movie Request ബട്ടൺ ക്ലിക്ക് ചെയ്യുമ്പോൾ പ്രവർത്തിക്കുന്ന ഹാൻഡ്‌ലർ
