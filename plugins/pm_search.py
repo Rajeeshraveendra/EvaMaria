@@ -2,6 +2,7 @@ import logging
 import asyncio
 import urllib.parse
 import difflib
+import aiohttp
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import UserIsBlocked, PeerIdInvalid, UserNotParticipant, FloodWait, InputUserDeactivated
@@ -63,6 +64,40 @@ async def get_db_spelling_suggestion(query):
     except Exception as e:
         logger.warning(f"Suggestion DB Error: {e}")
     return None
+
+async def fetch_imdb_info(query):
+    """OMDb API വഴി സിനിമയുടെ വിവരങ്ങളും പോസ്റ്ററും ശേഖരിക്കുന്നു"""
+    clean_query = query.split()[0:3]
+    search_term = " ".join(clean_query)
+    api_url = f"https://www.omdbapi.com/?t={urllib.parse.quote(search_term)}&apikey=trilogy"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("Response") == "True":
+                        title = data.get("Title", query)
+                        year = data.get("Year", "N/A")
+                        rating = data.get("imdbRating", "N/A")
+                        genres = data.get("Genre", "N/A")
+                        director = data.get("Director", "N/A")
+                        plot = data.get("Plot", "N/A")
+                        poster = data.get("Poster")
+                        if not poster or poster == "N/A":
+                            poster = None
+
+                        caption = (
+                            f"🎬 <b>{title} ({year})</b>\n\n"
+                            f"⭐ <b>IMDb Rating:</b> <code>{rating}/10</code>\n"
+                            f"🎭 <b>Genre:</b> {genres}\n"
+                            f"🎬 <b>Director:</b> {director}\n"
+                            f"📖 <b>Story:</b> <i>{plot}</i>\n\n"
+                            f"📥 <i>സിനിമയുടെ ഫയലുകൾ താഴെ നൽകുന്നു...</i>"
+                        )
+                        return poster, caption
+    except Exception as e:
+        logger.warning(f"IMDb API Error: {e}")
+    return None, None
 
 async def is_subscribed(client, user_id):
     """യൂസർ മെയിൻ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്തിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുന്നു"""
@@ -222,38 +257,53 @@ async def pm_group_movie_search(client, message):
     sent_count = 0
     blocked_or_not_started = False
 
-    # 3. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
-    for doc in files:
-        file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
-        file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
-        file_size_raw = getattr(doc, "file_size", None) or (doc.get("file_size") if isinstance(doc, dict) else None)
-        readable_size = get_readable_file_size(file_size_raw)
-
-        if not file_id:
-            continue
-
-        caption = (
-            f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
-            f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
-            f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
-            f"📥 <b>കൂടുതൽ മൂവികൾക്കായി ജോയിൻ ചെയ്യൂ:</b>\n"
-            f"👉 {FORCE_SUB_INVITE_LINK}"
-        )
-
+    # 3. സിനിമയുടെ IMDb വിവരങ്ങളും പോസ്റ്ററും PM-ലേക്ക് അയക്കുന്നു
+    poster_url, imdb_caption = await fetch_imdb_info(query)
+    if imdb_caption:
         try:
-            await client.send_cached_media(
-                chat_id=user_id,
-                file_id=file_id,
-                caption=caption,
-                parse_mode=enums.ParseMode.HTML
-            )
-            sent_count += 1
-            await asyncio.sleep(1.2)
+            if poster_url:
+                await client.send_photo(chat_id=user_id, photo=poster_url, caption=imdb_caption, parse_mode=enums.ParseMode.HTML)
+            else:
+                await client.send_message(chat_id=user_id, text=imdb_caption, parse_mode=enums.ParseMode.HTML)
+            await asyncio.sleep(1)
         except (UserIsBlocked, PeerIdInvalid):
             blocked_or_not_started = True
-            break
         except Exception as e:
-            logger.error(f"Send File Error: {e}")
+            logger.warning(f"IMDb Send Error: {e}")
+
+    # 4. ഉപയോക്താവിന് ഫയലുകൾ അയക്കുന്നു
+    if not blocked_or_not_started:
+        for doc in files:
+            file_id = getattr(doc, "file_id", None) or (doc.get("file_id") if isinstance(doc, dict) else None)
+            file_name = getattr(doc, "file_name", "Movie File") if hasattr(doc, "file_name") else (doc.get("file_name", "Movie File") if isinstance(doc, dict) else "Movie File")
+            file_size_raw = getattr(doc, "file_size", None) or (doc.get("file_size") if isinstance(doc, dict) else None)
+            readable_size = get_readable_file_size(file_size_raw)
+
+            if not file_id:
+                continue
+
+            caption = (
+                f"🎬 <b>Title:</b> <code>{file_name}</code>\n\n"
+                f"💾 <b>Size:</b> <code>{readable_size}</code>\n"
+                f"⚡ <b>Uploaded By:</b> @RRK_Movies\n\n"
+                f"📥 <b>കൂടുതൽ മൂവികൾക്കായി ജോയിൻ ചെയ്യൂ:</b>\n"
+                f"👉 {FORCE_SUB_INVITE_LINK}"
+            )
+
+            try:
+                await client.send_cached_media(
+                    chat_id=user_id,
+                    file_id=file_id,
+                    caption=caption,
+                    parse_mode=enums.ParseMode.HTML
+                )
+                sent_count += 1
+                await asyncio.sleep(1.2)
+            except (UserIsBlocked, PeerIdInvalid):
+                blocked_or_not_started = True
+                break
+            except Exception as e:
+                logger.error(f"Send File Error: {e}")
 
     # യൂസർ ബോട്ട് PM-ൽ സ്റ്റാർട്ട് ചെയ്തിട്ടില്ലെങ്കിൽ
     if blocked_or_not_started:
