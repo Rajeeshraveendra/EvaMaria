@@ -52,41 +52,62 @@ def clean_movie_title(raw_title):
     title = re.sub(r"\s+", " ", title).strip()
     return title, year
 
-def get_official_poster_and_trailer(clean_title, year="", lang="Movie"):
-    poster_url = None
+def get_pure_hd_poster(clean_title, year=""):
+    """Apple iTunes & TMDB വഴി 2000x2000 Ultra HD ഒറിജിനൽ പോസ്റ്റർ കണ്ടെത്തുന്നു"""
+    # 1. Apple iTunes HD Search (ക്രിസ്റ്റൽ ക്ലിയർ പോസ്റ്ററുകൾ ലഭിക്കും)
+    try:
+        itunes_url = f"https://itunes.apple.com/search?term={urllib.parse.quote(clean_title)}&entity=movie&limit=3"
+        r = requests.get(itunes_url, timeout=5).json()
+        if r.get("resultCount", 0) > 0:
+            for item in r.get("results", []):
+                raw_art = item.get("artworkUrl100")
+                if raw_art:
+                    # 100x100 മാറ്റി 2000x2000 Ultra HD ആക്കുന്നു
+                    return re.sub(r'\d+x\d+bb', '2000x2000bb', raw_art)
+    except Exception as e:
+        print(f"[iTunes Poster Error]: {e}")
+
+    # 2. TMDB Original 4K Poster
+    try:
+        url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
+        if year:
+            params["primary_release_date_year"] = year
+        res = requests.get(url, params=params, timeout=5).json()
+        results = res.get("results", [])
+        if results and results[0].get("poster_path"):
+            return f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
+    except Exception as e:
+        print(f"[TMDB Poster Error]: {e}")
+
+    return None
+
+def get_trailer_url(clean_title, year="", lang="Movie"):
     trailer_url = None
     try:
         url = "https://api.themoviedb.org/3/search/movie"
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
         if year:
             params["primary_release_date_year"] = year
-        res = requests.get(url, params=params, timeout=6)
-        if res.status_code == 200:
-            results = res.json().get("results", [])
-            if results:
-                # ടൈറ്റിൽ മാച്ച് കൃത്യമാണോ എന്ന് പരിശോധിക്കുന്നു
-                best_match = results[0]
-                if best_match.get("poster_path"):
-                    poster_url = f"https://image.tmdb.org/t/p/original{best_match['poster_path']}"
-
-                movie_id = best_match.get("id")
-                if movie_id:
-                    v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
-                    v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=6)
-                    if v_res.status_code == 200:
-                        videos = v_res.json().get("results", [])
-                        for v in videos:
-                            if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
-                                trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
-                                break
+        res = requests.get(url, params=params, timeout=5).json()
+        results = res.get("results", [])
+        if results:
+            movie_id = results[0].get("id")
+            if movie_id:
+                v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
+                v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=5).json()
+                for v in v_res.get("results", []):
+                    if v.get("site") == "YouTube" and v.get("type") in ["Trailer", "Teaser"]:
+                        trailer_url = f"https://www.youtube.com/watch?v={v.get('key')}"
+                        break
     except Exception as e:
-        print(f"[TMDB Details Error]: {e}")
+        print(f"[Trailer Error]: {e}")
 
     if not trailer_url:
         search_query = urllib.parse.quote(f"{clean_title} {year} {lang} movie official trailer")
         trailer_url = f"https://www.youtube.com/results?search_query={search_query}"
 
-    return poster_url, trailer_url
+    return trailer_url
 
 def fetch_movierulz_movies():
     categories = [
@@ -118,7 +139,6 @@ def fetch_movierulz_movies():
                 img_tag = item.find('img')
                 raw_poster = img_tag.get('src') if img_tag else None
                 
-                # വെബ്‌സൈറ്റിലെ തമ്പ്‌നെയിൽ സൈസ് (-165x220 മുതലായവ) മാറ്റി യഥാർത്ഥ ഒറിജിനൽ ഹൈ-ക്വാളിറ്റി ഇമേജ് ആക്കുന്നു
                 clean_site_poster = None
                 if raw_poster:
                     clean_site_poster = re.sub(r'-\d+x\d+(\.[a-zA-Z]+)$', r'\1', raw_poster)
@@ -176,15 +196,14 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
         clean_title, year = clean_movie_title(movie["title"])
         lang = movie.get("lang", "Movie")
 
-        tmdb_poster, trailer_url = await loop.run_in_executor(None, get_official_poster_and_trailer, clean_title, year, lang)
-        
-        # TMDB-ൽ ഒഫീഷ്യൽ ഹൈ-റെസ് പോസ്റ്റർ ഉണ്ടെങ്കിൽ അത് എടുക്കും, ഇല്ലെങ്കിൽ ആ സിനിമയുടെ തന്നെ Movierulz ഒറിജിനൽ ഹൈ-റെസ് പോസ്റ്റർ എടുക്കും
-        final_img = tmdb_poster or movie.get("site_poster")
+        # Apple iTunes / TMDB വഴി 2000x2000 ക്രിസ്റ്റൽ ക്ലിയർ ഫോട്ടോ ഉറപ്പാക്കുന്നു
+        hd_poster = await loop.run_in_executor(None, get_pure_hd_poster, clean_title, year)
+        final_img = hd_poster or movie.get("site_poster")
+
+        trailer_url = await loop.run_in_executor(None, get_trailer_url, clean_title, year, lang)
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
-        caption = (
-            f"🎬 <b>{movie['title']}</b>\n\n"
-        )
+        caption = f"🎬 <b>{movie['title']}</b>\n\n"
         if story:
             caption += f"📖 <b>Storyline :</b>\n<i>{story[:400]}...</i>\n\n"
 
@@ -229,13 +248,13 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
 
     if status_msg:
         if posted_count > 0:
-            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ഒറിജിനൽ പോസ്റ്ററുകളോടെ അയച്ചു.")
+            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ അൾട്രാ HD ക്വാളിറ്റിയിൽ അയച്ചു.")
         else:
-            await status_msg.edit_text("ℹ️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (ലിസ്റ്റിലുള്ള എല്ലാം ഇതിനകം ചാനലിൽ പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
+            await status_msg.edit_text("ℹ️️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (ലിസ്റ്റിലുള്ള എല്ലാം ഇതിനകം ചാനലിൽ പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
 
 @Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
-    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ പരിശോധിക്കുന്നു...")
+    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ അൾട്രാ HD ക്വാളിറ്റിയിൽ പരിശോധിക്കുന്നു...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
