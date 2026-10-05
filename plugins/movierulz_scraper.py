@@ -31,11 +31,10 @@ def save_posted_link(link):
         f.write(f"{link}\n")
 
 def is_sleep_time():
-    """UAE (UTC+4) & India (UTC+5:30) 10 PM to 7 AM sleep mode"""
+    """രാത്രി 10 PM മുതൽ രാവിലെ 7 AM വരെ മാത്രം സ്ലീപ്പ് മോഡ്"""
     now_utc = datetime.now(timezone.utc)
     gst_hour = (now_utc + timedelta(hours=4)).hour
-    ist_hour = (now_utc + timedelta(hours=5, minutes=30)).hour
-    return (gst_hour >= 22 or gst_hour < 7) or (ist_hour >= 22 or ist_hour < 7)
+    return 22 <= gst_hour or gst_hour < 7
 
 def clean_movie_title(raw_title):
     year_match = re.search(r'\b(20\d\d|19\d\d)\b', raw_title)
@@ -62,7 +61,7 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
         params = {"api_key": TMDB_API_KEY, "query": clean_title, "include_adult": "false"}
         if year:
             params["primary_release_date_year"] = year
-        res = requests.get(url, params=params, timeout=8)
+        res = requests.get(url, params=params, timeout=6)
         if res.status_code == 200:
             results = res.json().get("results", [])
             if results:
@@ -72,7 +71,7 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
 
                 if movie_id:
                     v_url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos"
-                    v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=8)
+                    v_res = requests.get(v_url, params={"api_key": TMDB_API_KEY}, timeout=6)
                     if v_res.status_code == 200:
                         videos = v_res.json().get("results", [])
                         for v in videos:
@@ -100,7 +99,7 @@ def fetch_movierulz_movies():
 
     for cat in categories:
         try:
-            response = requests.get(cat["url"], headers=HEADERS, timeout=12)
+            response = requests.get(cat["url"], headers=HEADERS, timeout=8)
             if response.status_code != 200:
                 continue
 
@@ -133,7 +132,7 @@ def fetch_movierulz_movies():
 
 def fetch_movie_story(page_url):
     try:
-        response = requests.get(page_url, headers=HEADERS, timeout=10)
+        response = requests.get(page_url, headers=HEADERS, timeout=6)
         if response.status_code != 200:
             return None
 
@@ -148,6 +147,7 @@ def fetch_movie_story(page_url):
         return None
 
 async def run_scraper_process(client: Client, status_msg=None, force=False):
+    # force=True ആണെങ്കിൽ sleep mode ചെക്ക് ചെയ്യില്ല
     if not force and is_sleep_time():
         return
 
@@ -157,13 +157,15 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
     
     if not movies:
         if status_msg:
-            await status_msg.edit_text("❌ സിനിമകൾ കണ്ടെത്താനായില്ല.")
+            await status_msg.edit_text("❌ വെബ്സൈറ്റിൽ നിന്ന് വിവരങ്ങൾ ലഭിച്ചില്ല.")
         return
 
     posted_count = 0
     for movie in reversed(movies):
         link = movie["page_url"]
-        if link in posted_links:
+        
+        # force ആണെങ്കിലും ഡ്യൂപ്ലിക്കേറ്റ് പോസ്റ്റ് ആകുന്നത് ഒഴിവാക്കും
+        if not force and link in posted_links:
             continue
 
         clean_title, year = clean_movie_title(movie["title"])
@@ -214,20 +216,19 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
             posted_count += 1
             save_posted_link(link)
             posted_links.add(link)
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
         except Exception as send_err:
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
         if posted_count > 0:
-            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ചാനലിലേക്ക് അയച്ചു.")
+            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റിയിൽ അയച്ചു.")
         else:
-            await status_msg.edit_text("ℹ️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (എല്ലാ സിനിമകളും ഇതിനകം പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
+            await status_msg.edit_text("ℹ️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (ലിസ്റ്റിലുള്ള എല്ലാം ഇതിനകം ചാനലിൽ പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
 
-@Client.on_message(filters.command(["scrape"]) & filters.private, group=-5)
+@Client.on_message(filters.command("scrape") & filters.private)
 async def manual_scrape_cmd(client: Client, message):
-    message.stop_propagation()
-    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റിയിൽ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
+    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ പരിശോധിക്കുന്നു...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
