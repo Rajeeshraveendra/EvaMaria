@@ -67,7 +67,6 @@ def get_movie_meta_and_trailer(clean_title, year="", lang="Movie"):
             results = res.json().get("results", [])
             if results:
                 movie_id = results[0].get("id")
-                # ഉയർന്ന റെസലൂഷനുള്ള ഒറിജിനൽ പോസ്റ്റർ
                 if results[0].get("poster_path"):
                     poster_url = f"https://image.tmdb.org/t/p/original{results[0]['poster_path']}"
 
@@ -101,7 +100,7 @@ def fetch_movierulz_movies():
 
     for cat in categories:
         try:
-            response = requests.get(cat["url"], headers=HEADERS, timeout=15)
+            response = requests.get(cat["url"], headers=HEADERS, timeout=12)
             if response.status_code != 200:
                 continue
 
@@ -134,7 +133,7 @@ def fetch_movierulz_movies():
 
 def fetch_movie_story(page_url):
     try:
-        response = requests.get(page_url, headers=HEADERS, timeout=12)
+        response = requests.get(page_url, headers=HEADERS, timeout=10)
         if response.status_code != 200:
             return None
 
@@ -164,14 +163,13 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
     posted_count = 0
     for movie in reversed(movies):
         link = movie["page_url"]
-        if not force and link in posted_links:
+        if link in posted_links:
             continue
 
         clean_title, year = clean_movie_title(movie["title"])
         lang = movie.get("lang", "Movie")
 
         hd_poster_url, trailer_url = await loop.run_in_executor(None, get_movie_meta_and_trailer, clean_title, year, lang)
-        # TMDB ഒറിജിനൽ ഹൈ-റെസലൂഷൻ പോസ്റ്ററിന് മുൻഗണന നൽകുന്നു
         final_img_url = hd_poster_url or movie.get("poster")
         story = await loop.run_in_executor(None, fetch_movie_story, link)
 
@@ -197,7 +195,6 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
 
         try:
             if final_img_url:
-                # നേരിട്ട് ക്ലൗഡ് ഹൈ-ക്വാളിറ്റി URL വഴി അയക്കുന്നു
                 await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
                     photo=final_img_url,
@@ -222,12 +219,15 @@ async def run_scraper_process(client: Client, status_msg=None, force=False):
             print(f"[Scraper] Send Error: {send_err}")
 
     if status_msg:
-        await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ചാനലിലേക്ക് അയച്ചു.")
+        if posted_count > 0:
+            await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted_count} പുതിയ സിനിമകൾ ചാനലിലേക്ക് അയച്ചു.")
+        else:
+            await status_msg.edit_text("ℹ️ പുതിയ സിനിമകൾ ലഭ്യമല്ല (എല്ലാ സിനിമകളും ഇതിനകം പോസ്റ്റ് ചെയ്തിട്ടുണ്ട്).")
 
 @Client.on_message(filters.command(["scrape"]) & filters.private, group=-5)
 async def manual_scrape_cmd(client: Client, message):
     message.stop_propagation()
-    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റി പോസ്റ്ററുകളോടെ സ്ക്രാപ്പ് ചെയ്യുന്നു...")
+    msg = await message.reply_text("🔍 പുതിയ സിനിമകൾ ഹൈ-ക്വാളിറ്റിയിൽ തിരയുന്നു, ദയവായി കാത്തിരിക്കുക...")
     await run_scraper_process(client, msg, force=True)
 
 async def auto_loop(client: Client):
