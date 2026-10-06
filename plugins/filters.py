@@ -11,7 +11,6 @@ from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
 
-# User file edukkumbol grp message delete cheyyan ulla store
 USER_GRP_MSGS = {}
 
 def get_audio_tag(name):
@@ -58,19 +57,15 @@ async def send_log_safe(client, log_txt):
     except Exception as e:
         logger.error(f"Log Channel Error: {e}")
 
-async def auto_delete_not_found(user_msg, bot_msg, delay=10):
-    """സിനിമ കിട്ടിയില്ലെങ്കിൽ 10 സെക്കൻഡിൽ മെമ്പറുടെ ചോദ്യവും ബോട്ടിന്റെ മറുപടിയും കളയുന്നു"""
+async def safe_delete_messages(client, chat_id, message_ids, delay=10):
+    """10 second-il messages nirbandhamayum delete cheyyunnu"""
     await asyncio.sleep(delay)
     try:
-        await user_msg.delete()
-    except Exception:
-        pass
-    try:
-        await bot_msg.delete()
-    except Exception:
-        pass
+        await client.delete_messages(chat_id=chat_id, message_ids=message_ids)
+    except Exception as e:
+        logger.error(f"Error in safe_delete_messages: {e}")
 
-@Client.on_message((filters.group | filters.private) & filters.text & filters.incoming)
+@Client.on_message((filters.group | filters.private) & filters.text & filters.incoming, group=1)
 async def give_filter(client, message):
     if not message.text or message.text.startswith(("/", "!", "#")) or len(message.text.strip()) < 2:
         return
@@ -86,14 +81,13 @@ async def give_filter(client, message):
     chat_title = message.chat.title if is_group else "Bot PM / Personal"
 
     grp_id = message.chat.id
-    settings = await get_settings(grp_id)
 
     if AUTH_CHANNEL and not await is_subscribed(client, message):
         return
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. സിനിമ കിട്ടിയില്ലെങ്കിൽ (10 സെക്കൻഡിൽ ഓട്ടോ-ഡിലീറ്റ്)
+    # 1. Cinema kittiyillengil
     if not files:
         log_txt = (
             f"❌ <b>#MovieNotFound</b>\n\n"
@@ -103,22 +97,25 @@ async def give_filter(client, message):
         )
         await send_log_safe(client, log_txt)
 
-        if settings.get("spell_check", True):
-            btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
-            err_msg = await message.reply_text(
-                f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-                f"ഹലോ {user_mention},\n"
-                f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് :</b> <code>{text}</code>\n\n"
-                f"💡 ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.",
-                reply_markup=InlineKeyboardMarkup(btn),
-                parse_mode=enums.ParseMode.HTML
-            )
-            # ഗ്രൂപ്പിലാണെങ്കിൽ 10 സെക്കൻഡിൽ ഡിലീറ്റ് ചെയ്യുന്നു
-            if is_group:
-                asyncio.create_task(auto_delete_not_found(message, err_msg, delay=10))
+        btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
+        err_msg = await message.reply_text(
+            f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
+            f"ഹലോ {user_mention},\n"
+            f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് :</b> <code>{text}</code>\n\n"
+            f"💡 ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+        # 10 second kazhiyumbol user-nte question-um bot-nte error reply-um delete aavunnu
+        if is_group:
+            asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, err_msg.id], delay=10))
+        
+        # Vere function-lekku idhu repeat aavathirikkan execution stop cheyyunnu
+        message.stop_propagation()
         return
 
-    # 2. സിനിമ ലഭിച്ചാൽ
+    # 2. Cinema kittiyaal
     log_txt = (
         f"🎬 <b>#FileSentToPM</b>\n\n"
         f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -128,7 +125,6 @@ async def give_filter(client, message):
     )
     await send_log_safe(client, log_txt)
 
-    # ബട്ടണുകൾ തയ്യാറാക്കുന്നു
     btn = []
     for file in files:
         raw_name = file.file_name
@@ -159,10 +155,11 @@ async def give_filter(client, message):
         parse_mode=enums.ParseMode.HTML
     )
 
-    # സിനിമ ലഭിച്ചാൽ മെമ്പർ PM-ലേക്ക് പോയി ഫയൽ എടുക്കുമ്പോൾ ഡിലീറ്റ് ചെയ്യാൻ സേവ് ചെയ്യുന്നു
     if is_group:
         USER_GRP_MSGS[userid] = {
             "chat_id": message.chat.id,
             "user_msg_id": message.id,
             "bot_msg_id": result_msg.id
         }
+
+    message.stop_propagation()
