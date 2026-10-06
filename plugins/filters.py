@@ -37,18 +37,17 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. സിനിമ കിട്ടിയില്ലെങ്കിൽ:
+    # 1. സിനിമ കിട്ടിയില്ലെങ്കിൽ ലോഗ് ചാനലിലേക്ക് അയക്കുക
     if not files:
-        # ലോഗ് ചാനലിലേക്ക് നോട്ടിഫിക്കേഷൻ അയക്കുന്നു
         if LOG_CHANNEL:
             try:
                 log_txt = (
                     f"❌ <b>#MovieNotFound</b>\n\n"
-                    f"👥 <b>Requested In:</b> {chat_title}\n"
+                    f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
                     f"👤 <b>User:</b> {user_mention} (<code>{userid}</code>)\n"
                     f"🔍 <b>Query:</b> <code>{text}</code>"
                 )
-                await client.send_message(LOG_CHANNEL, log_txt)
+                await client.send_message(int(LOG_CHANNEL), log_txt)
             except Exception as e:
                 logger.error(f"Log Error: {e}")
 
@@ -64,8 +63,7 @@ async def give_filter(client, message):
             )
         return
 
-    # 2. ഫയലുകൾ ലഭ്യമാണെങ്കിൽ:
-    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായ സെർച്ച് ഡീറ്റെയിൽസ് അയക്കുന്നു
+    # 2. ഫയലുകൾ കിട്ടിയാൽ കൃത്യമായ ലോഗ് അയക്കുക
     if LOG_CHANNEL:
         try:
             log_txt = (
@@ -75,11 +73,11 @@ async def give_filter(client, message):
                 f"🔍 <b>Query:</b> <code>{text}</code>\n"
                 f"📦 <b>Files Found:</b> {total_results}"
             )
-            await client.send_message(LOG_CHANNEL, log_txt)
+            await client.send_message(int(LOG_CHANNEL), log_txt)
         except Exception as e:
             logger.error(f"Log Error: {e}")
 
-    # ഉപയോക്താവിന് റിസൾട്ട് ബട്ടണുകൾ നൽകുന്നു
+    # യൂസർക്ക് റിസൾട്ട് ബട്ടണുകൾ അയക്കുക
     btn = []
     for file in files:
         title = file.file_name
