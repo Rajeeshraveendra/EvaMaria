@@ -44,7 +44,7 @@ async def save_group(bot, message):
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         await message.reply_text(
-            text=f"<b>Thankyou For Adding Me In {message.chat.title} ❣️️\n\nIf you have any questions & doubts about using me contact support.</b>",
+            text=f"<b>Thankyou For Adding Me In {message.chat.title} ❣\n\nIf you have any questions & doubts about using me contact support.</b>",
             reply_markup=reply_markup)
     else:
         settings = await get_settings(message.chat.id)
@@ -58,7 +58,7 @@ async def save_group(bot, message):
                 temp.MELCOW['welcome'] = await message.reply_video(
                     video="https://telegra.ph/file/5104288cec4e13769a882.mp4",                                               
                     caption=f'<b>ʜᴇʏ, {u.mention} 👋🏻\nᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴏᴜʀ ɢʀᴏᴜᴘ {message.chat.title}\n\nʏᴏᴜ ᴄᴀɴ ꜰɪɴᴅ ᴍᴏᴠɪᴇꜱ / ꜱᴇʀɪᴇꜱ / ᴀɴɪᴍᴇꜱ ᴇᴛᴄ. ꜰʀᴏᴍ ʜᴇʀᴇ. ᴇɴᴊᴏʏ😉.\n\n<b>┏≫ ғᴏʟʟᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs</b>\n┣ <b>ᴍᴀɪɴ ᴄʜᴀɴɴᴇʟ ›› @Technical_Help_Support_Bot</b></code>\n<b>┗≫ ғᴏʟʟᴏᴡ ɢʀᴏᴜᴘ ʀᴜʟᴇs</b>',
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('➡️ɢʀᴏᴜᴘ ʀᴜʟᴇs⬅️', url='https://www.youtube.com/@Anuragtechnical')]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('➡️ɢʀᴏᴜᴘ ʀᴜʟᴇs⬅️️', url='https://www.youtube.com/@Anuragtechnical')]])
                 )
 
 @Client.on_message(filters.command('leave') & filters.user(ADMINS))
@@ -252,44 +252,4 @@ async def list_chats(bot, message):
 
 @Client.on_message(filters.group & filters.text & ~filters.command(['start', 'help', 'scrape', 'ott', 'stats', 'filter', 'del', 'ban', 'unban', 'enable', 'disable', 'leave', 'users', 'chats']), group=1)
 async def auto_spell_check_group(bot, message):
-    if not message.text or message.text.startswith("/"):
-        return
-    if message.from_user and message.from_user.is_bot:
-        return
-
-    query = message.text.strip()
-    if len(query) < 2:
-        return
-
-    # ഡാറ്റാബേസിൽ ഫയലുകൾ ഉണ്ടോ എന്ന് പരിശോധിക്കുന്നു
-    try:
-        files, offset, total_results = await get_search_results(message.chat.id, query)
-    except Exception:
-        files = []
-
-    # ഫയൽ ലഭ്യമല്ലെങ്കിൽ ഇംഗ്ലീഷിലും മലയാളത്തിലും ഒരുമിച്ച് റിപ്ലൈ നൽകുന്നു
-    if not files:
-        google_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}+movie+spelling"
-        buttons = [
-            [InlineKeyboardButton("🔍 Check Spelling on Google", url=google_url)],
-            [InlineKeyboardButton("🎬 Join Channel / Releases", url="https://t.me/+NoL3OkqPwBtiZjY0")]
-        ]
-
-        user_name = message.from_user.mention if message.from_user else "Friend"
-        reply_text = (
-            f"❌ <b>Movie Not Found! / സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-            f"Hey {user_name},\n"
-            f"📌 <b>You Searched :</b> <code>{query}</code>\n\n"
-            f"💡 <b>Please check the spelling and send again.</b>\n"
-            f"<i>(ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക)</i>\n\n"
-            f"👉 <b>Example / ഉദാഹരണം :</b> <i>Drishyam, Manjummel Boys</i>"
-        )
-        try:
-            await message.reply_text(
-                text=reply_text,
-                quote=True,
-                reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode=enums.ParseMode.HTML
-            )
-        except Exception as e:
-            print(f"[SpellCheck Reply Error]: {e}")
+    return
