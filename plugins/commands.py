@@ -20,6 +20,37 @@ logger = logging.getLogger(__name__)
 BATCH_FILES = {}
 TARGET_LOG_CHANNEL = -1003799495012
 
+async def send_completion_message(client, user_id):
+    """ഫയൽ അയച്ചു കഴിഞ്ഞാൽ ഏറ്റവും താഴെ നന്ദി സന്ദേശവും ബട്ടണുകളും അയക്കുന്നു"""
+    success_txt = (
+        "🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
+        "🎉 <i>നിങ്ങൾ ചോദിച്ച സിനിമയുടെ ഫയലുകൾ തരാൻ കഴിഞ്ഞതിൽ വളരെ സന്തോഷം.</i>\n\n"
+        "💡 നിങ്ങളുടെ വിലയേറിയ നിർദ്ദേശങ്ങളും തെറ്റുകളും ഉണ്ടെങ്കിൽ അഡ്മിനെ അറിയിക്കുക.\n\n"
+        "💖 <b>RRK Movies AutoBot</b> ഉപയോഗിച്ചതിന് നന്ദി. ഹാപ്പി വാച്ചിംഗ്!\n\n"
+        "കൂടുതൽ പുതിയ സിനിമകൾക്കും അപ്ഡേറ്റുകൾക്കുമായി ഞങ്ങളുടെ ചാനലിൽ ജോയിൻ ചെയ്യുക."
+    )
+
+    buttons = [
+        [
+            InlineKeyboardButton("📢 Main Channel", url="https://t.me/+NoL3OkqPwBtiZjY0"),
+            InlineKeyboardButton("💬 WhatsApp Admin", url="https://wa.me/971562769519?text=Hi%20Rajeesh%20Raveendra%20Kamballur")
+        ],
+        [
+            InlineKeyboardButton("🔍 Search More Movies", url="https://t.me/RRK_Movies")
+        ]
+    ]
+
+    try:
+        await client.send_message(
+            chat_id=user_id,
+            text=success_txt,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        logger.error(f"Completion Message Error: {e}")
+
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
@@ -28,7 +59,7 @@ async def start(client, message):
                 InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
             ],
             [
-                InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', url=f"https://t.me/{temp.U_NAME}?start=help"),
+                InlineKeyboardButton('ℹ️️ 𝙷𝚎𝚕𝚙', url=f"https://t.me/{temp.U_NAME}?start=help"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
@@ -177,7 +208,6 @@ async def start(client, message):
                 continue
             await asyncio.sleep(1) 
 
-        # Batch ലോഗ് അയക്കുന്നു[span_0](start_span)[span_0](end_span)
         try:
             u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
             log_text = (
@@ -197,6 +227,7 @@ async def start(client, message):
         except Exception as e:
             logger.error(f"Batch Log Error: {e}")
 
+        await send_completion_message(client, message.from_user.id)
         await sts.delete()
         return
 
@@ -248,7 +279,6 @@ async def start(client, message):
                     continue
             await asyncio.sleep(1)
 
-        # DSTORE ലോഗ് അയക്കുന്നു[span_1](start_span)[span_1](end_span)
         try:
             u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
             log_text = (
@@ -268,6 +298,7 @@ async def start(client, message):
         except Exception as e:
             logger.error(f"Dstore Log Error: {e}")
 
+        await send_completion_message(client, message.from_user.id)
         return await sts.delete()
 
     files_ = await get_file_details(file_id)           
@@ -290,7 +321,6 @@ async def start(client, message):
                     pass
             await msg.edit_caption(f_caption)
 
-            # Single Base64 ഫയൽ ലോഗ് അയക്കുന്നു[span_2](start_span)[span_2](end_span)
             try:
                 u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
                 log_text = (
@@ -310,6 +340,7 @@ async def start(client, message):
             except Exception as e:
                 logger.error(f"Log Error: {e}")
 
+            await send_completion_message(client, message.from_user.id)
             return
         except:
             return await message.reply('No such file exist.')
@@ -334,7 +365,6 @@ async def start(client, message):
         protect_content=True if pre == 'filep' else False,
     )
 
-    # ലോഗ് ചാനലിലേക്ക് കൃത്യമായി #FileSentToPM അപ്‌ഡേറ്റ് അയക്കുന്നു[span_3](start_span)[span_3](end_span)
     try:
         u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
         log_text = (
@@ -353,6 +383,9 @@ async def start(client, message):
         )
     except Exception as e:
         logger.error(f"Log Error: {e}")
+
+    # ഉപയോക്താവിന് താഴെ നന്ദി സന്ദേശവും ബട്ടണുകളും അയക്കുന്നു
+    await send_completion_message(client, message.from_user.id)
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
 async def channel_info(bot, message):
