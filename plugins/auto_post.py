@@ -6,6 +6,7 @@ import json
 import urllib.request
 import urllib.parse
 import tempfile
+from PIL import Image
 
 from pyrogram import Client, filters, enums
 from pyrogram.types import (
@@ -31,6 +32,8 @@ OMDB_API_KEY = os.environ.get(
     "OMDB_API_KEY",
     "97960898"
 )
+
+LOGO_PATH = "assets/rrk_logo.png"
 
 POST_CACHE = {}
 LOCK = asyncio.Lock()
@@ -112,7 +115,7 @@ def fetch_json(url):
 
 
 # ============================================================
-# IMDb / OMDb SEARCH (WITH 4K POSTER URL RESOLVER)
+# IMDb / OMDb SEARCH (TRUE UNCOMPRESSED POSTER RESOLVER)
 # ============================================================
 
 async def get_imdb_details(movie_name, year=None):
@@ -175,9 +178,9 @@ async def get_imdb_details(movie_name, year=None):
             story = details.get("Plot", "No storyline available.")
             poster = details.get("Poster")
 
-            # 4K / Full HD റെസല്യൂഷനിലേക്ക് പോസ്റ്റർ URL മാറ്റുന്നു
+            # ക്രോപ്പിംഗും റീസൈസിംഗും ഒഴിവാക്കി യഥാർത്ഥ ഹൈ-റെസല്യൂഷൻ ചിത്രം എടുക്കുന്നു
             if poster and poster != "N/A":
-                poster = re.sub(r"_SX\d+|_SY\d+|_CR\d+,\d+,\d+,\d+_|_AL_", "_SX1600_", poster)
+                poster = re.sub(r"\._V1_.*?\.", "._V1_.", poster)
             else:
                 poster = None
 
@@ -198,6 +201,57 @@ async def get_imdb_details(movie_name, year=None):
             return None
 
     return await loop.run_in_executor(None, fetch)
+
+
+# ============================================================
+# IMAGE DOWNLOAD & WATERMARK LOGO
+# ============================================================
+
+async def prepare_hd_poster_with_logo(url):
+    if not url:
+        return None
+
+    loop = asyncio.get_event_loop()
+
+    def process():
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = resp.read()
+
+            temp_in = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            temp_in.write(data)
+            temp_in.close()
+
+            # ഒറിജിനൽ ആസ്പെക്ട് റേഷ്യോ നിലനിർത്തി ലോഗോ മാത്രം ചേർക്കുന്നു
+            img = Image.open(temp_in.name).convert("RGBA")
+            
+            if os.path.exists(LOGO_PATH):
+                logo = Image.open(LOGO_PATH).convert("RGBA")
+                # പോസ്റ്ററിന്റെ വലിപ്പത്തിന് അനുസരിച്ച് ലോഗോ റീസൈസ് ചെയ്യുന്നു
+                logo_width = int(img.width * 0.22)
+                logo_height = int(logo.height * (logo_width / logo.width))
+                logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
+                
+                # മുകളിൽ ഇടത് കോണിൽ ലോഗോ സ്ഥാപിക്കുന്നു
+                img.paste(logo, (int(img.width * 0.04), int(img.height * 0.03)), logo)
+
+            out_temp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            out_temp.close()
+
+            img.convert("RGB").save(out_temp.name, "JPEG", quality=98, optimize=True)
+
+            try:
+                os.remove(temp_in.name)
+            except Exception:
+                pass
+
+            return out_temp.name
+        except Exception as e:
+            print(f"Logo/Poster processing error: {e}")
+            return None
+
+    return await loop.run_in_executor(None, process)
 
 
 # ============================================================
@@ -279,7 +333,7 @@ async def save_direct_files(client, message):
             )
     except Exception as e:
         await message.reply_text(
-            f"⚠️ <b>Save cheyyan kazhinjilla:</b>\n<code>{e}</code>",
+            f"⚠️️ <b>Save cheyyan kazhinjilla:</b>\n<code>{e}</code>",
             quote=True
         )
 
@@ -350,27 +404,43 @@ async def auto_post_to_group(client, message):
         entries = [line_entry]
         caption, buttons = get_caption_and_buttons(base_title, entries, imdb_info)
 
-        # യഥാർത്ഥ പോസ്റ്റർ URL അല്ലെങ്കിൽ ബാക്കപ്പ് ചിത്രം നേരിട്ട് എടുക്കുന്നു
-        poster_to_send = imdb_info.get("poster")
-        if not poster_to_send and PICS:
-            poster_to_send = random.choice(PICS)
+        raw_poster_url = imdb_info.get("poster")
+        if not raw_poster_url and PICS:
+            raw_poster_url = random.choice(PICS)
+
+        # ഫുൾ ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഡൗൺലോഡ് ചെയ്ത് ലോഗോ ചേർക്കുന്നു
+        processed_poster = None
+        if raw_poster_url:
+            processed_poster = await prepare_hd_poster_with_logo(raw_poster_url)
 
         sent_msg = None
 
-        # 1. ഒറിജിനൽ ഫുൾ സൈസ് HD/4K പോസ്റ്റർ നേരിട്ട് അയക്കുന്നു (ബ്ലാക്ക് ബോക്സ് ഇല്ലാതെ)
-        if poster_to_send:
+        if processed_poster:
             try:
                 sent_msg = await client.send_photo(
                     chat_id=UPDATE_CHANNEL,
-                    photo=poster_to_send,
+                    photo=processed_poster,
                     caption=caption,
                     reply_markup=buttons,
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as e:
-                print(f"Poster send error: {e}")
+                print(f"Processed poster send error: {e}")
 
-        # 2. ഫോട്ടോ പരാജയപ്പെട്ടാൽ മാത്രം ടെക്സ്റ്റ് ആയി അയക്കുന്നു
+        # ലോഗോ ചേർക്കുന്നതിൽ പിഴവുണ്ടായാൽ ബാക്കപ്പായി ഡയറക്ട് ഇമേജ് അയക്കുന്നു
+        if not sent_msg and raw_poster_url:
+            try:
+                sent_msg = await client.send_photo(
+                    chat_id=UPDATE_CHANNEL,
+                    photo=raw_poster_url,
+                    caption=caption,
+                    reply_markup=buttons,
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception as e:
+                print(f"Direct poster send error: {e}")
+
+        # ടെക്സ്റ്റ് ബാക്കപ്പ്
         if not sent_msg:
             try:
                 sent_msg = await client.send_message(
@@ -389,5 +459,11 @@ async def auto_post_to_group(client, message):
             "entries": entries,
             "imdb_info": imdb_info
         }
+
+        if processed_poster and os.path.exists(processed_poster):
+            try:
+                os.remove(processed_poster)
+            except Exception:
+                pass
 
         print(f"[AUTO POST] Successfully posted: {imdb_info.get('display_title')}")
