@@ -1,5 +1,6 @@
 import io
 import re
+import asyncio
 import logging
 from pyrogram import filters, Client, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,8 +11,10 @@ from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
 
+# User file edukkumbol grp message delete cheyyan ulla global store
+USER_GRP_MSGS = {}
+
 def get_audio_tag(name):
-    """ഫയൽ നെയിമിൽ നിന്ന് ഭാഷ കണ്ടെത്തുന്നു"""
     n = name.lower()
     audios = []
     if any(x in n for x in ['malayalam', 'mal']):
@@ -33,7 +36,6 @@ def get_audio_tag(name):
     return "/".join(audios) if audios else ""
 
 def get_quality_tag(name):
-    """ഫയൽ നെയിമിൽ നിന്ന് ക്വാളിറ്റി കണ്ടെത്തുന്നു"""
     n = name.lower()
     if '2160p' in n or '4k' in n:
         return '4K'
@@ -68,7 +70,8 @@ async def give_filter(client, message):
 
     userid = user.id
     user_mention = user.mention
-    chat_title = message.chat.title if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP] else "Bot PM / Personal"
+    is_group = message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
+    chat_title = message.chat.title if is_group else "Bot PM / Personal"
 
     grp_id = message.chat.id
     settings = await get_settings(grp_id)
@@ -78,7 +81,7 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. സിനിമ ലഭ്യമല്ലെങ്കിൽ
+    # 1. Cinema kittiyillengil
     if not files:
         log_txt = (
             f"❌ <b>#MovieNotFound</b>\n\n"
@@ -100,7 +103,7 @@ async def give_filter(client, message):
             )
         return
 
-    # 2. സിനിമ ലഭിച്ചാൽ
+    # 2. Cinema kittiyaal log channel-ilekku ayakkunnu
     log_txt = (
         f"🎬 <b>#FileSentToPM</b>\n\n"
         f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -110,7 +113,7 @@ async def give_filter(client, message):
     )
     await send_log_safe(client, log_txt)
 
-    # ബട്ടൺ ഫോർമാറ്റിംഗ്
+    # Buttons format cheyyunnu
     btn = []
     for file in files:
         raw_name = file.file_name
@@ -118,12 +121,10 @@ async def give_filter(client, message):
         audio = get_audio_tag(raw_name)
         quality = get_quality_tag(raw_name)
 
-        # [MM], [MS] തുടങ്ങിയ അനാവശ്യ ബ്രാക്കറ്റുകളും ടാഗുകളും ഒഴിവാക്കുന്നു
         cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
         cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
         cleaned_name = re.sub(' +', ' ', cleaned_name)
 
-        # ടാഗുകൾ തയ്യാറാക്കുന്നു (ഉദാ: 560MB | Tam | 720p)
         tag_parts = [size]
         if audio:
             tag_parts.append(audio)
@@ -137,8 +138,16 @@ async def give_filter(client, message):
         btn_caption = f"🎬 [{tag_str}] {cleaned_name}"
         btn.append([InlineKeyboardButton(btn_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
 
-    await message.reply_text(
+    result_msg = await message.reply_text(
         f"<b>Here is the result for:</b> <code>{text}</code>",
         reply_markup=InlineKeyboardMarkup(btn),
         parse_mode=enums.ParseMode.HTML
     )
+
+    # User-nte search details store cheyyunnu (PM-il file kitti kazhinju delete aavan)
+    if is_group:
+        USER_GRP_MSGS[userid] = {
+            "chat_id": message.chat.id,
+            "user_msg_id": message.id,
+            "bot_msg_id": result_msg.id
+        }
