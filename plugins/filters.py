@@ -1,4 +1,5 @@
 import io
+import re
 import logging
 from pyrogram import filters, Client, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -8,6 +9,30 @@ from utils import get_settings, get_size, is_subscribed, save_group_settings, te
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
+
+def extract_audio(filename):
+    """ഫയൽ നെയിമിൽ നിന്ന് ഓഡിയോ/ഭാഷ കണ്ടെത്തുന്നു"""
+    languages = []
+    text = filename.lower()
+    
+    mapping = {
+        'malayalam': 'Mal',
+        'tamil': 'Tam',
+        'hindi': 'Hin',
+        'telugu': 'Tel',
+        'kannada': 'Kan',
+        'english': 'Eng',
+        'multi': 'Multi',
+        'dual': 'Dual'
+    }
+    
+    for key, val in mapping.items():
+        if key in text:
+            languages.append(val)
+            
+    if languages:
+        return "/".join(languages)
+    return ""
 
 @Client.on_message((filters.group | filters.private) & filters.text & filters.incoming)
 async def give_filter(client, message):
@@ -37,7 +62,7 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. സിനിമ കിട്ടിയില്ലെങ്കിൽ ലോഗ് ചാനലിലേക്ക് അയക്കുക
+    # 1. സിനിമ കിട്ടിയില്ലെങ്കിൽ ലോഗ് അയക്കുക
     if not files:
         if LOG_CHANNEL:
             try:
@@ -47,7 +72,7 @@ async def give_filter(client, message):
                     f"👤 <b>User:</b> {user_mention} (<code>{userid}</code>)\n"
                     f"🔍 <b>Query:</b> <code>{text}</code>"
                 )
-                await client.send_message(int(LOG_CHANNEL), log_txt)
+                await client.send_message(LOG_CHANNEL, log_txt)
             except Exception as e:
                 logger.error(f"Log Error: {e}")
 
@@ -63,7 +88,7 @@ async def give_filter(client, message):
             )
         return
 
-    # 2. ഫയലുകൾ കിട്ടിയാൽ കൃത്യമായ ലോഗ് അയക്കുക
+    # 2. ഫയൽ കിട്ടിയാൽ ലോഗ് അയക്കുക
     if LOG_CHANNEL:
         try:
             log_txt = (
@@ -73,16 +98,26 @@ async def give_filter(client, message):
                 f"🔍 <b>Query:</b> <code>{text}</code>\n"
                 f"📦 <b>Files Found:</b> {total_results}"
             )
-            await client.send_message(int(LOG_CHANNEL), log_txt)
+            await client.send_message(LOG_CHANNEL, log_txt)
         except Exception as e:
             logger.error(f"Log Error: {e}")
 
-    # യൂസർക്ക് റിസൾട്ട് ബട്ടണുകൾ അയക്കുക
+    # യൂസർക്ക് ബട്ടൺ നൽകുന്നു (സൈസ് + ഓഡിയോ + സിനിമയുടെ പേര്)
     btn = []
     for file in files:
         title = file.file_name
         size = get_size(file.file_size)
-        f_caption = f"🎬 {title} [{size}]"
+        audio = extract_audio(title)
+
+        # ഓഡിയോ കണ്ടെത്തിയാൽ ടാഗ് ചേർക്കുന്നു (ഉദാ: [450MB | Mal])
+        tag = f"[{size} | {audio}]" if audio else f"[{size}]"
+
+        # ബട്ടൺ നീളം കവിയാതിരിക്കാൻ പേര് ക്രമീകരിക്കുന്നു
+        clean_title = re.sub(r'[_.-]', ' ', title)
+        if len(clean_title) > 28:
+            clean_title = clean_title[:25] + "..."
+
+        f_caption = f"🎬 {tag} {clean_title}"
         btn.append([InlineKeyboardButton(f_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
 
     await message.reply_text(
