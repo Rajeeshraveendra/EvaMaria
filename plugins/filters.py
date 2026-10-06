@@ -11,7 +11,7 @@ from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
 
-# User file edukkumbol grp message delete cheyyan ulla global store
+# User file edukkumbol grp message delete cheyyan ulla store
 USER_GRP_MSGS = {}
 
 def get_audio_tag(name):
@@ -58,6 +58,18 @@ async def send_log_safe(client, log_txt):
     except Exception as e:
         logger.error(f"Log Channel Error: {e}")
 
+async def auto_delete_not_found(user_msg, bot_msg, delay=10):
+    """സിനിമ കിട്ടിയില്ലെങ്കിൽ 10 സെക്കൻഡിൽ മെമ്പറുടെ ചോദ്യവും ബോട്ടിന്റെ മറുപടിയും കളയുന്നു"""
+    await asyncio.sleep(delay)
+    try:
+        await user_msg.delete()
+    except Exception:
+        pass
+    try:
+        await bot_msg.delete()
+    except Exception:
+        pass
+
 @Client.on_message((filters.group | filters.private) & filters.text & filters.incoming)
 async def give_filter(client, message):
     if not message.text or message.text.startswith(("/", "!", "#")) or len(message.text.strip()) < 2:
@@ -81,7 +93,7 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. Cinema kittiyillengil
+    # 1. സിനിമ കിട്ടിയില്ലെങ്കിൽ (10 സെക്കൻഡിൽ ഓട്ടോ-ഡിലീറ്റ്)
     if not files:
         log_txt = (
             f"❌ <b>#MovieNotFound</b>\n\n"
@@ -93,7 +105,7 @@ async def give_filter(client, message):
 
         if settings.get("spell_check", True):
             btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
-            await message.reply_text(
+            err_msg = await message.reply_text(
                 f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
                 f"ഹലോ {user_mention},\n"
                 f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് :</b> <code>{text}</code>\n\n"
@@ -101,9 +113,12 @@ async def give_filter(client, message):
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
+            # ഗ്രൂപ്പിലാണെങ്കിൽ 10 സെക്കൻഡിൽ ഡിലീറ്റ് ചെയ്യുന്നു
+            if is_group:
+                asyncio.create_task(auto_delete_not_found(message, err_msg, delay=10))
         return
 
-    # 2. Cinema kittiyaal log channel-ilekku ayakkunnu
+    # 2. സിനിമ ലഭിച്ചാൽ
     log_txt = (
         f"🎬 <b>#FileSentToPM</b>\n\n"
         f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -113,7 +128,7 @@ async def give_filter(client, message):
     )
     await send_log_safe(client, log_txt)
 
-    # Buttons format cheyyunnu
+    # ബട്ടണുകൾ തയ്യാറാക്കുന്നു
     btn = []
     for file in files:
         raw_name = file.file_name
@@ -144,7 +159,7 @@ async def give_filter(client, message):
         parse_mode=enums.ParseMode.HTML
     )
 
-    # User-nte search details store cheyyunnu (PM-il file kitti kazhinju delete aavan)
+    # സിനിമ ലഭിച്ചാൽ മെമ്പർ PM-ലേക്ക് പോയി ഫയൽ എടുക്കുമ്പോൾ ഡിലീറ്റ് ചെയ്യാൻ സേവ് ചെയ്യുന്നു
     if is_group:
         USER_GRP_MSGS[userid] = {
             "chat_id": message.chat.id,
