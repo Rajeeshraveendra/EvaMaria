@@ -21,13 +21,18 @@ BATCH_FILES = {}
 TARGET_LOG_CHANNEL = -1003799495012
 
 async def send_completion_message(client, user_id):
-    """ഫയൽ അയച്ചു കഴിഞ്ഞാൽ ഏറ്റവും താഴെ നന്ദി സന്ദേശവും ബട്ടണുകളും അയക്കുന്നു"""
+    """ഫയൽ അയച്ചു കഴിഞ്ഞാൽ താഴെ നന്ദി സന്ദേശവും ബട്ടണുകളും അയക്കുന്നു (Malayalam & English)"""
     success_txt = (
         "🍿 <b>താങ്കൾ തിരഞ്ഞ ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
-        "🎉 <i>നിങ്ങൾ ചോദിച്ച സിനിമയുടെ ഫയലുകൾ തരാൻ കഴിഞ്ഞതിൽ വളരെ സന്തോഷം.</i>\n\n"
-        "💡 നിങ്ങളുടെ വിലയേറിയ നിർദ്ദേശങ്ങളും തെറ്റുകളും ഉണ്ടെങ്കിൽ അഡ്മിനെ അറിയിക്കുക.\n\n"
-        "💖 <b>RRK Movies AutoBot</b> ഉപയോഗിച്ചതിന് നന്ദി. ഹാപ്പി വാച്ചിംഗ്!\n\n"
-        "കൂടുതൽ പുതിയ സിനിമകൾക്കും അപ്ഡേറ്റുകൾക്കുമായി ഞങ്ങളുടെ ചാനലിൽ ജോയിൻ ചെയ്യുക."
+        "<i>Your requested files have been sent successfully!</i>\n\n"
+        "🎉 നിങ്ങൾ ചോദിച്ച സിനിമയുടെ ഫയലുകൾ തരാൻ കഴിഞ്ഞതിൽ വളരെ സന്തോഷം.\n"
+        "<i>Glad to deliver the movie files you requested.</i>\n\n"
+        "💡 നിങ്ങളുടെ വിലയേറിയ നിർദ്ദേശങ്ങളും തെറ്റുകളും ഉണ്ടെങ്കിൽ അഡ്മിനെ അറിയിക്കുക.\n"
+        "<i>Please let the admin know if you find any errors or have suggestions.</i>\n\n"
+        "💖 <b>RRK Movies AutoBot</b> ഉപയോഗിച്ചതിന് നന്ദി. ഹാപ്പി വാച്ചിംഗ്!\n"
+        "<i>Thanks for using RRK Movies AutoBot. Happy Watching!</i>\n\n"
+        "📢 കൂടുതൽ പുതിയ സിനിമകൾക്കും അപ്ഡേറ്റുകൾക്കുമായി ഞങ്ങളുടെ ചാനലിൽ ജോയിൻ ചെയ്യുക.\n"
+        "<i>Join our channel for more latest movies and updates.</i>"
     )
 
     buttons = [
@@ -59,7 +64,7 @@ async def start(client, message):
                 InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
             ],
             [
-                InlineKeyboardButton('ℹ️️ 𝙷𝚎𝚕𝚙', url=f"https://t.me/{temp.U_NAME}?start=help"),
+                InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', url=f"https://t.me/{temp.U_NAME}?start=help"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
