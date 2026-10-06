@@ -8,11 +8,15 @@ import urllib.parse
 import tempfile
 
 from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
+
 from info import CHANNELS, PICS
 from database.ia_filterdb import save_file
 
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 
 # ============================================================
@@ -20,12 +24,21 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # ============================================================
 
 UPDATE_CHANNEL = int(
-    os.environ.get("UPDATE_CHANNEL", "-1003799495012")
+    os.environ.get(
+        "UPDATE_CHANNEL",
+        "-1003799495012"
+    )
+)
+
+OMDB_API_KEY = os.environ.get(
+    "OMDB_API_KEY",
+    "b6636080"
 )
 
 LOGO_PATH = "assets/rrk_logo.png"
 
 POST_CACHE = {}
+
 LOCK = asyncio.Lock()
 
 POST_WIDTH = 1080
@@ -33,95 +46,176 @@ POST_HEIGHT = 1350
 
 
 # ============================================================
-# FONT
+# FONTS
 # ============================================================
 
 def get_font(size, bold=False):
-    """
-    Try common Linux/Railway fonts.
-    """
-
-    font_paths = []
 
     if bold:
-        font_paths = [
+
+        paths = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
         ]
+
     else:
-        font_paths = [
+
+        paths = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         ]
 
-    for path in font_paths:
+    for path in paths:
+
         if os.path.exists(path):
-            return ImageFont.truetype(path, size)
+
+            return ImageFont.truetype(
+                path,
+                size
+            )
 
     return ImageFont.load_default()
 
 
 # ============================================================
-# TEXT HELPERS
+# BASIC TEXT CLEANING
 # ============================================================
 
 def clean_text(text):
+
     if not text:
         return ""
 
     text = str(text)
-    text = text.replace("\n", " ")
-    text = re.sub(r"\s+", " ", text)
+
+    text = text.replace(
+        "\n",
+        " "
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
 
     return text.strip()
 
 
-def shorten_text(text, max_chars=260):
-    text = clean_text(text)
-
-    if len(text) <= max_chars:
-        return text
-
-    return text[:max_chars].rsplit(" ", 1)[0] + "..."
-
+# ============================================================
+# MOVIE TITLE EXTRACTION
+# ============================================================
 
 def extract_movie_info(filename):
 
-    name = os.path.basename(filename)
+    """
+    Example:
 
+    DVDWO_Vadakkumnadhan2006_Malayalam_HQ_HD_TVRip_720p_X264_AAC_1_7GB.mp4
+
+    Returns:
+
+    Vadakkumnadhan
+    2006
+    """
+
+    name = os.path.basename(
+        filename
+    )
+
+    # --------------------------------------------------------
     # Remove extension
+    # --------------------------------------------------------
+
     name = re.sub(
-        r"\.[a-zA-Z0-9]{2,5}$",
+        r"\.[A-Za-z0-9]{2,5}$",
         "",
         name
     )
 
-    # Remove brackets
-    name = re.sub(r"\[.*?\]", " ", name)
-    name = re.sub(r"\(.*?\)", " ", name)
+    # --------------------------------------------------------
+    # Remove [tags] and (tags)
+    # --------------------------------------------------------
 
-    # Remove channel tags
-    name = re.sub(r"@\w+[_]?", " ", name)
+    name = re.sub(
+        r"\[[^\]]*\]",
+        " ",
+        name
+    )
 
-    # Replace separators
+    name = re.sub(
+        r"\([^)]*\)",
+        " ",
+        name
+    )
+
+    # --------------------------------------------------------
+    # Remove Telegram/channel tags
+    # --------------------------------------------------------
+
+    name = re.sub(
+        r"@\w+",
+        " ",
+        name
+    )
+
+    # --------------------------------------------------------
+    # Normalize separators
+    # --------------------------------------------------------
+
     name = (
-        name.replace(".", " ")
+        name
         .replace("_", " ")
+        .replace(".", " ")
         .replace("-", " ")
     )
 
-    name = re.sub(r"\s+", " ", name).strip()
+    # --------------------------------------------------------
+    # Separate letters and numbers
+    #
+    # Vadakkumnadhan2006
+    # ->
+    # Vadakkumnadhan 2006
+    # --------------------------------------------------------
 
+    name = re.sub(
+        r"([A-Za-z])(\d{4})",
+        r"\1 \2",
+        name
+    )
+
+    name = re.sub(
+        r"(\d{4})([A-Za-z])",
+        r"\1 \2",
+        name
+    )
+
+    name = re.sub(
+        r"\s+",
+        " ",
+        name
+    ).strip()
+
+    # --------------------------------------------------------
     # Find year
+    # --------------------------------------------------------
+
     year_match = re.search(
         r"\b(19\d{2}|20\d{2})\b",
         name
     )
 
-    year = year_match.group(1) if year_match else None
+    year = (
+        year_match.group(1)
+        if year_match
+        else None
+    )
 
-    # Tags
-    tags = [
+    # --------------------------------------------------------
+    # Words that indicate filename metadata
+    # --------------------------------------------------------
+
+    stop_words = {
         "hindi",
         "tamil",
         "telugu",
@@ -129,42 +223,59 @@ def extract_movie_info(filename):
         "kannada",
         "english",
         "bengali",
+        "marathi",
+
+        "hq",
+        "hd",
+        "fullhd",
 
         "hdrip",
-        "web-dl",
         "webdl",
+        "web-dl",
+        "web",
         "webrip",
+        "web-rip",
+
         "bluray",
+        "blu-ray",
         "brrip",
         "dvdrip",
+        "dvd",
+
+        "tvrip",
+        "tv-rip",
+
         "hdts",
-        "camrip",
         "hdtc",
+        "cam",
+        "camrip",
 
         "hevc",
         "x264",
         "x265",
 
+        "480p",
         "720p",
         "1080p",
         "2160p",
         "4k",
-        "480p",
 
         "aac",
         "dd",
         "ddp",
-        "dd5",
+        "eac3",
+        "ac3",
         "5.1",
 
         "esub",
         "subs",
-        "sub",
+        "subtitle",
+        "subtitles",
+
         "mkv",
         "mp4",
+        "avi",
 
-        "sps",
-        "wmr",
         "proper",
         "repack",
 
@@ -178,138 +289,367 @@ def extract_movie_info(filename):
         "sonyliv",
         "aha",
         "jio",
-    ]
 
-    clean_words = []
+        "gb",
+        "mb",
+
+        "dvdwo",
+        "wmr",
+        "sps",
+    }
+
+    # --------------------------------------------------------
+    # Clean title words
+    # --------------------------------------------------------
+
+    title_words = []
 
     for word in name.split():
 
         lower = word.lower()
 
+        # Year marks end of movie title
         if year and word == year:
             break
 
-        if any(
-            lower == tag or lower.startswith(tag)
-            for tag in tags
+        # Remove numeric size values
+        if re.fullmatch(
+            r"\d+(?:\.\d+)?(?:gb|mb)",
+            lower
         ):
             break
 
-        clean_words.append(word)
+        # Stop at known release metadata
+        if lower in stop_words:
+            break
 
-    title = " ".join(clean_words).strip()
+        # Ignore standalone numbers
+        if re.fullmatch(
+            r"\d+",
+            lower
+        ):
+            continue
+
+        title_words.append(
+            word
+        )
+
+    title = " ".join(
+        title_words
+    ).strip()
+
+    # --------------------------------------------------------
+    # Remove leading junk tags
+    # --------------------------------------------------------
+
+    title = re.sub(
+        r"^(dvdwo|wmr|sps)\s+",
+        "",
+        title,
+        flags=re.IGNORECASE
+    )
+
+    title = re.sub(
+        r"\s+",
+        " ",
+        title
+    ).strip()
+
+    # --------------------------------------------------------
+    # Fallback
+    # --------------------------------------------------------
 
     if not title:
-        title = name.split()[0] if name.split() else "Movie"
+
+        title = "Movie"
 
     return title, year
 
 
 # ============================================================
-# QUALITY / OTT EXTRACTION
+# QUALITY / SOURCE EXTRACTION
 # ============================================================
 
 def extract_quality_details(filename):
 
     text = filename.lower()
 
-    quality = []
+    qualities = []
 
-    quality_patterns = [
-        (r"2160p|4k", "4K"),
-        (r"1080p", "1080p"),
-        (r"720p", "720p"),
-        (r"480p", "480p"),
-    ]
+    if re.search(
+        r"2160p|4k",
+        text
+    ):
+        qualities.append(
+            "4K"
+        )
 
-    for pattern, label in quality_patterns:
-        if re.search(pattern, text):
-            quality.append(label)
+    elif re.search(
+        r"1080p",
+        text
+    ):
+        qualities.append(
+            "1080p"
+        )
 
-    # Video source
-    sources = [
-        (r"web[-_. ]?dl", "WEB-DL"),
-        (r"web[-_. ]?rip", "WEBRip"),
-        (r"bluray|blu[-_. ]?ray", "BluRay"),
-        (r"brrip", "BRRip"),
-        (r"hdrip", "HDRip"),
-        (r"dvdrip", "DVDRip"),
-        (r"hdts", "HDTS"),
-        (r"hdtc", "HDTC"),
-        (r"camrip|cam", "CAM"),
-    ]
+    elif re.search(
+        r"720p",
+        text
+    ):
+        qualities.append(
+            "720p"
+        )
+
+    elif re.search(
+        r"480p",
+        text
+    ):
+        qualities.append(
+            "480p"
+        )
+
+    # --------------------------------------------------------
+    # Source
+    # --------------------------------------------------------
 
     source = None
 
-    for pattern, label in sources:
-        if re.search(pattern, text):
+    source_patterns = [
+        (
+            r"web[-_. ]?dl",
+            "WEB-DL"
+        ),
+        (
+            r"web[-_. ]?rip",
+            "WEBRip"
+        ),
+        (
+            r"bluray|blu[-_. ]?ray",
+            "BluRay"
+        ),
+        (
+            r"brrip",
+            "BRRip"
+        ),
+        (
+            r"hdrip",
+            "HDRip"
+        ),
+        (
+            r"tvrip|tv[-_. ]?rip",
+            "TVRip"
+        ),
+        (
+            r"dvdrip",
+            "DVDRip"
+        ),
+        (
+            r"hdts",
+            "HDTS"
+        ),
+        (
+            r"hdtc",
+            "HDTC"
+        ),
+        (
+            r"camrip|cam",
+            "CAM"
+        ),
+    ]
+
+    for pattern, label in source_patterns:
+
+        if re.search(
+            pattern,
+            text
+        ):
+
             source = label
             break
 
+    # --------------------------------------------------------
     # Codec
+    # --------------------------------------------------------
+
     codec = None
 
-    if re.search(r"x265|hevc", text):
+    if re.search(
+        r"x265|hevc",
+        text
+    ):
+
         codec = "HEVC / x265"
-    elif re.search(r"x264", text):
+
+    elif re.search(
+        r"x264",
+        text
+    ):
+
         codec = "x264"
 
+    # --------------------------------------------------------
     # Audio
+    # --------------------------------------------------------
+
     audio = []
 
-    if re.search(r"ddp|eac3", text):
-        audio.append("DDP")
+    if re.search(
+        r"eac3|ddp",
+        text
+    ):
 
-    if re.search(r"dd5\.1|dd 5\.1|5\.1", text):
-        audio.append("5.1")
+        audio.append(
+            "DDP"
+        )
 
-    if re.search(r"aac", text):
-        audio.append("AAC")
+    elif re.search(
+        r"ac3|dd",
+        text
+    ):
 
+        audio.append(
+            "DD"
+        )
+
+    if re.search(
+        r"5[._ ]?1",
+        text
+    ):
+
+        audio.append(
+            "5.1"
+        )
+
+    if re.search(
+        r"aac",
+        text
+    ):
+
+        audio.append(
+            "AAC"
+        )
+
+    # --------------------------------------------------------
     # OTT
+    # --------------------------------------------------------
+
     ott = None
 
     ott_patterns = [
-        (r"netflix|nfx", "Netflix"),
-        (r"amazon|amzn", "Amazon Prime"),
-        (r"hotstar", "Disney+ Hotstar"),
-        (r"disney", "Disney+"),
-        (r"zee5", "ZEE5"),
-        (r"sonyliv", "SonyLIV"),
-        (r"jio", "JioCinema"),
-        (r"aha", "Aha"),
+        (
+            r"netflix|nfx",
+            "Netflix"
+        ),
+        (
+            r"amazon|amzn",
+            "Amazon Prime"
+        ),
+        (
+            r"hotstar",
+            "Disney+ Hotstar"
+        ),
+        (
+            r"disney",
+            "Disney+"
+        ),
+        (
+            r"zee5",
+            "ZEE5"
+        ),
+        (
+            r"sonyliv",
+            "SonyLIV"
+        ),
+        (
+            r"jio",
+            "JioCinema"
+        ),
+        (
+            r"aha",
+            "Aha"
+        ),
     ]
 
     for pattern, label in ott_patterns:
-        if re.search(pattern, text):
+
+        if re.search(
+            pattern,
+            text
+        ):
+
             ott = label
             break
 
     parts = []
 
-    if quality:
-        parts.append(" / ".join(dict.fromkeys(quality)))
+    if qualities:
+        parts.extend(
+            list(dict.fromkeys(qualities))
+        )
 
     if source:
-        parts.append(source)
+        parts.append(
+            source
+        )
 
     if codec:
-        parts.append(codec)
+        parts.append(
+            codec
+        )
 
     if audio:
-        parts.append(" ".join(dict.fromkeys(audio)))
+        parts.extend(
+            list(dict.fromkeys(audio))
+        )
 
     return {
-        "quality": " • ".join(parts) if parts else "HD",
-        "ott": ott or "OTT / Digital",
+        "quality": (
+            " • ".join(parts)
+            if parts
+            else "HD"
+        ),
+        "ott": (
+            ott
+            if ott
+            else "Digital"
+        )
     }
 
 
 # ============================================================
-# IMDb
+# HTTP JSON HELPER
 # ============================================================
 
-async def get_imdb_details(movie_name, year=None):
+def fetch_json(url):
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent":
+            "Mozilla/5.0"
+        }
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=10
+    ) as response:
+
+        return json.loads(
+            response.read().decode(
+                "utf-8"
+            )
+        )
+
+
+# ============================================================
+# IMDb / OMDb SEARCH
+# ============================================================
+
+async def get_imdb_details(
+    movie_name,
+    year=None
+):
 
     loop = asyncio.get_event_loop()
 
@@ -317,85 +657,205 @@ async def get_imdb_details(movie_name, year=None):
 
         try:
 
-            q = urllib.parse.quote(movie_name)
+            # =================================================
+            # SEARCH 1
+            # =================================================
 
-            url = (
+            query = urllib.parse.quote(
+                movie_name
+            )
+
+            search_url = (
                 "https://www.omdbapi.com/"
-                f"?t={q}"
-                f"&y={year or ''}"
-                "&apikey=b6636080"
+                f"?apikey={OMDB_API_KEY}"
+                f"&s={query}"
+                "&type=movie"
             )
 
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0"
-                }
-            )
-
-            with urllib.request.urlopen(
-                req,
-                timeout=8
-            ) as response:
-
-                data = json.loads(
-                    response.read().decode()
+            if year:
+                search_url += (
+                    f"&y={year}"
                 )
 
-            # Fallback without year
-            if data.get("Response") != "True":
+            search_data = fetch_json(
+                search_url
+            )
+
+            # =================================================
+            # SEARCH RESULTS
+            # =================================================
+
+            results = search_data.get(
+                "Search",
+                []
+            )
+
+            selected = None
+
+            # Exact normalized title
+            wanted = re.sub(
+                r"[^a-z0-9]+",
+                "",
+                movie_name.lower()
+            )
+
+            for item in results:
+
+                item_title = item.get(
+                    "Title",
+                    ""
+                )
+
+                normalized = re.sub(
+                    r"[^a-z0-9]+",
+                    "",
+                    item_title.lower()
+                )
+
+                item_year = str(
+                    item.get(
+                        "Year",
+                        ""
+                    )
+                )
+
+                # Exact title + year
+                if (
+                    normalized == wanted
+                    and (
+                        not year
+                        or item_year.startswith(
+                            str(year)
+                        )
+                    )
+                ):
+
+                    selected = item
+                    break
+
+            # =================================================
+            # Year match
+            # =================================================
+
+            if not selected and year:
+
+                for item in results:
+
+                    item_year = str(
+                        item.get(
+                            "Year",
+                            ""
+                        )
+                    )
+
+                    if item_year.startswith(
+                        str(year)
+                    ):
+
+                        selected = item
+                        break
+
+            # =================================================
+            # First movie fallback
+            # =================================================
+
+            if not selected and results:
+
+                selected = results[0]
+
+            # =================================================
+            # Search without year if necessary
+            # =================================================
+
+            if not selected:
 
                 fallback_url = (
                     "https://www.omdbapi.com/"
-                    f"?t={q}"
-                    "&apikey=b6636080"
+                    f"?apikey={OMDB_API_KEY}"
+                    f"&s={query}"
+                    "&type=movie"
                 )
 
-                req2 = urllib.request.Request(
-                    fallback_url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0"
-                    }
+                fallback_data = fetch_json(
+                    fallback_url
                 )
 
-                with urllib.request.urlopen(
-                    req2,
-                    timeout=8
-                ) as response:
-
-                    data = json.loads(
-                        response.read().decode()
+                fallback_results = (
+                    fallback_data.get(
+                        "Search",
+                        []
                     )
+                )
 
-            if data.get("Response") != "True":
+                if fallback_results:
+
+                    selected = fallback_results[0]
+
+            if not selected:
+
+                print(
+                    f"IMDb search failed: "
+                    f"{movie_name} {year}"
+                )
+
                 return None
 
-            title = data.get(
+            imdb_id = selected.get(
+                "imdbID"
+            )
+
+            if not imdb_id:
+                return None
+
+            # =================================================
+            # Get FULL IMDb details
+            # =================================================
+
+            detail_url = (
+                "https://www.omdbapi.com/"
+                f"?apikey={OMDB_API_KEY}"
+                f"&i={urllib.parse.quote(imdb_id)}"
+                "&plot=full"
+            )
+
+            details = fetch_json(
+                detail_url
+            )
+
+            if details.get(
+                "Response"
+            ) != "True":
+
+                return None
+
+            title = details.get(
                 "Title",
                 movie_name
             )
 
-            movie_year = data.get(
+            movie_year = details.get(
                 "Year",
                 year or ""
             )
 
-            rating = data.get(
+            rating = details.get(
                 "imdbRating",
                 "N/A"
             )
 
-            genres = data.get(
+            genres = details.get(
                 "Genre",
                 "N/A"
             )
 
-            story = data.get(
+            story = details.get(
                 "Plot",
                 "No storyline available."
             )
 
-            poster = data.get("Poster")
+            poster = details.get(
+                "Poster"
+            )
 
             if poster == "N/A":
                 poster = None
@@ -413,12 +873,13 @@ async def get_imdb_details(movie_name, year=None):
                 "genres": genres,
                 "story": story,
                 "poster": poster,
+                "imdb_id": imdb_id
             }
 
         except Exception as e:
 
             print(
-                f"IMDb API Error: {e}"
+                f"IMDb/OMDb Error: {e}"
             )
 
             return None
@@ -451,16 +912,17 @@ async def download_image(url):
 
             temp.close()
 
-            req = urllib.request.Request(
+            request = urllib.request.Request(
                 url,
                 headers={
-                    "User-Agent": "Mozilla/5.0"
+                    "User-Agent":
+                    "Mozilla/5.0"
                 }
             )
 
             with urllib.request.urlopen(
-                req,
-                timeout=12
+                request,
+                timeout=15
             ) as response:
 
                 data = response.read()
@@ -468,16 +930,16 @@ async def download_image(url):
             with open(
                 temp.name,
                 "wb"
-            ) as f:
+            ) as file:
 
-                f.write(data)
+                file.write(data)
 
             return temp.name
 
         except Exception as e:
 
             print(
-                f"Poster download error: {e}"
+                f"Image download error: {e}"
             )
 
             return None
@@ -494,24 +956,26 @@ async def download_image(url):
 
 def load_logo():
 
-    if not os.path.exists(LOGO_PATH):
+    if not os.path.exists(
+        LOGO_PATH
+    ):
+
         print(
-            f"RRK logo not found: {LOGO_PATH}"
+            f"Logo not found: {LOGO_PATH}"
         )
+
         return None
 
     try:
 
         logo = Image.open(
             LOGO_PATH
-        ).convert("RGBA")
-
-        # Keep original ratio
-        max_width = 250
-        max_height = 100
+        ).convert(
+            "RGBA"
+        )
 
         logo.thumbnail(
-            (max_width, max_height),
+            (240, 100),
             Image.Resampling.LANCZOS
         )
 
@@ -520,14 +984,14 @@ def load_logo():
     except Exception as e:
 
         print(
-            f"Logo loading error: {e}"
+            f"Logo error: {e}"
         )
 
         return None
 
 
 # ============================================================
-# CREATE PROFESSIONAL POSTER
+# PROFESSIONAL POSTER
 # ============================================================
 
 def create_professional_poster(
@@ -541,13 +1005,16 @@ def create_professional_poster(
 
         canvas = Image.new(
             "RGB",
-            (POST_WIDTH, POST_HEIGHT),
+            (
+                POST_WIDTH,
+                POST_HEIGHT
+            ),
             (12, 12, 12)
         )
 
-        # ----------------------------------------------------
-        # Poster
-        # ----------------------------------------------------
+        # ====================================================
+        # POSTER IMAGE
+        # ====================================================
 
         if poster_path and os.path.exists(
             poster_path
@@ -555,15 +1022,18 @@ def create_professional_poster(
 
             poster = Image.open(
                 poster_path
-            ).convert("RGB")
-
-            # Crop/fill canvas
-            poster_ratio = (
-                poster.width / poster.height
+            ).convert(
+                "RGB"
             )
 
             target_ratio = (
-                POST_WIDTH / POST_HEIGHT
+                POST_WIDTH /
+                POST_HEIGHT
+            )
+
+            poster_ratio = (
+                poster.width /
+                poster.height
             )
 
             if poster_ratio > target_ratio:
@@ -571,7 +1041,8 @@ def create_professional_poster(
                 new_height = POST_HEIGHT
 
                 new_width = int(
-                    new_height * poster_ratio
+                    new_height *
+                    poster_ratio
                 )
 
             else:
@@ -579,20 +1050,26 @@ def create_professional_poster(
                 new_width = POST_WIDTH
 
                 new_height = int(
-                    new_width / poster_ratio
+                    new_width /
+                    poster_ratio
                 )
 
             poster = poster.resize(
-                (new_width, new_height),
+                (
+                    new_width,
+                    new_height
+                ),
                 Image.Resampling.LANCZOS
             )
 
             left = (
-                new_width - POST_WIDTH
+                new_width -
+                POST_WIDTH
             ) // 2
 
             top = (
-                new_height - POST_HEIGHT
+                new_height -
+                POST_HEIGHT
             ) // 2
 
             poster = poster.crop(
@@ -604,262 +1081,237 @@ def create_professional_poster(
                 )
             )
 
-            # Dark overlay
-            overlay = Image.new(
-                "RGBA",
-                canvas.size,
-                (0, 0, 0, 0)
-            )
-
-            draw_overlay = ImageDraw.Draw(
-                overlay
-            )
-
-            draw_overlay.rectangle(
-                (
-                    0,
-                    0,
-                    POST_WIDTH,
-                    POST_HEIGHT
-                ),
-                fill=(0, 0, 0, 80)
-            )
-
-            # Bottom gradient-ish dark blocks
-            draw_overlay.rectangle(
-                (
-                    0,
-                    850,
-                    POST_WIDTH,
-                    POST_HEIGHT
-                ),
-                fill=(0, 0, 0, 185)
-            )
-
-            poster = Image.alpha_composite(
-                poster.convert("RGBA"),
-                overlay
-            ).convert("RGB")
-
             canvas.paste(
                 poster,
                 (0, 0)
             )
 
-        # ----------------------------------------------------
-        # Drawing
-        # ----------------------------------------------------
+        # ====================================================
+        # DRAW
+        # ====================================================
 
         draw = ImageDraw.Draw(
             canvas
         )
 
-        title_font = get_font(
-            66,
-            bold=True
+        # Bottom dark area
+        draw.rectangle(
+            (
+                0,
+                820,
+                POST_WIDTH,
+                POST_HEIGHT
+            ),
+            fill=(0, 0, 0)
         )
 
-        year_font = get_font(
-            34,
-            bold=True
-        )
-
-        normal_font = get_font(
-            30,
-            bold=False
-        )
-
-        small_font = get_font(
-            25,
-            bold=True
-        )
-
-        # ----------------------------------------------------
-        # RRK LOGO
-        # ----------------------------------------------------
+        # ====================================================
+        # LOGO
+        # ====================================================
 
         logo = load_logo()
 
         if logo:
 
-            logo_x = 55
-            logo_y = 45
-
-            # Slight translucent background
-            logo_bg = Image.new(
-                "RGBA",
-                (
-                    logo.width + 30,
-                    logo.height + 20
-                ),
-                (0, 0, 0, 130)
-            )
-
-            canvas.paste(
-                logo_bg,
-                (
-                    logo_x - 15,
-                    logo_y - 10
-                ),
-                logo_bg
-            )
-
             canvas.paste(
                 logo,
                 (
-                    logo_x,
-                    logo_y
+                    50,
+                    40
                 ),
                 logo
             )
 
-        # ----------------------------------------------------
-        # Bottom title area
-        # ----------------------------------------------------
+        # ====================================================
+        # FONTS
+        # ====================================================
+
+        title_font = get_font(
+            62,
+            True
+        )
+
+        year_font = get_font(
+            31,
+            True
+        )
+
+        info_font = get_font(
+            28,
+            False
+        )
+
+        small_font = get_font(
+            24,
+            True
+        )
+
+        # ====================================================
+        # TITLE
+        # ====================================================
 
         title = imdb_info.get(
             "title",
             "Movie"
         )
 
-        # Maximum title length
         if len(title) > 30:
-            title = title[:30].rsplit(
-                " ",
-                1
-            )[0] + "..."
 
-        # Draw title
-        title_y = 885
+            title = (
+                title[:30]
+                .rsplit(" ", 1)[0]
+                + "..."
+            )
 
         draw.text(
-            (55, title_y),
+            (
+                55,
+                855
+            ),
             title,
             font=title_font,
-            fill="white",
-            stroke_width=2,
-            stroke_fill="black"
+            fill="white"
         )
 
-        # Year
-        movie_year = imdb_info.get(
+        # ====================================================
+        # YEAR
+        # ====================================================
+
+        year = imdb_info.get(
             "year",
             ""
         )
 
-        if movie_year:
+        if year:
 
             draw.text(
                 (
                     58,
-                    title_y + 82
+                    935
                 ),
-                f"RELEASED • {movie_year}",
+                f"RELEASED • {year}",
                 font=year_font,
                 fill="white"
             )
 
-        # ----------------------------------------------------
-        # Rating / Genre
-        # ----------------------------------------------------
+        # ====================================================
+        # RATING
+        # ====================================================
 
         rating = imdb_info.get(
             "rating",
             "N/A"
         )
 
+        draw.text(
+            (
+                58,
+                1000
+            ),
+            f"⭐ IMDb {rating}/10",
+            font=info_font,
+            fill="white"
+        )
+
+        # ====================================================
+        # GENRE
+        # ====================================================
+
         genres = imdb_info.get(
             "genres",
             "N/A"
         )
 
-        info_y = 1010
+        if len(genres) > 48:
 
-        draw.text(
-            (58, info_y),
-            f"⭐ IMDb {rating}/10",
-            font=normal_font,
-            fill="white"
-        )
+            genres = (
+                genres[:48]
+                .rsplit(" ", 1)[0]
+                + "..."
+            )
 
         draw.text(
             (
                 58,
-                info_y + 50
+                1050
             ),
             f"🎭 {genres}",
-            font=normal_font,
+            font=info_font,
             fill="white"
         )
 
-        # ----------------------------------------------------
-        # Quality
-        # ----------------------------------------------------
+        # ====================================================
+        # QUALITY
+        # ====================================================
 
         quality = quality_info.get(
             "quality",
             "HD"
         )
 
-        ott = quality_info.get(
-            "ott",
-            "OTT / Digital"
-        )
-
-        quality_y = 1135
-
         draw.text(
             (
                 58,
-                quality_y
+                1110
             ),
             f"🎞 {quality}",
             font=small_font,
             fill="white"
         )
 
+        # ====================================================
+        # OTT
+        # ====================================================
+
+        ott = quality_info.get(
+            "ott",
+            "Digital"
+        )
+
         draw.text(
             (
                 58,
-                quality_y + 48
+                1155
             ),
             f"📺 {ott}",
             font=small_font,
             fill="white"
         )
 
-        # ----------------------------------------------------
-        # Bottom RRK branding
-        # ----------------------------------------------------
+        # ====================================================
+        # BRAND
+        # ====================================================
 
-        brand_font = get_font(
-            26,
-            bold=True
-        )
-
-        brand_text = "RRK MOVIES • OFFICIAL"
+        brand = "RRK MOVIES • OFFICIAL"
 
         bbox = draw.textbbox(
             (0, 0),
-            brand_text,
-            font=brand_font
+            brand,
+            font=small_font
         )
 
-        text_width = (
-            bbox[2] - bbox[0]
+        brand_width = (
+            bbox[2] -
+            bbox[0]
         )
 
         draw.text(
             (
-                POST_WIDTH - text_width - 55,
-                POST_HEIGHT - 55
+                POST_WIDTH -
+                brand_width -
+                50,
+                POST_HEIGHT -
+                55
             ),
-            brand_text,
-            font=brand_font,
+            brand,
+            font=small_font,
             fill="white"
         )
 
-        # Save HD
+        # ====================================================
+        # SAVE
+        # ====================================================
+
         canvas.save(
             output_path,
             "JPEG",
@@ -872,14 +1324,14 @@ def create_professional_poster(
     except Exception as e:
 
         print(
-            f"Poster generation error: {e}"
+            f"Poster creation error: {e}"
         )
 
         return False
 
 
 # ============================================================
-# CAPTION + BUTTON
+# CAPTION
 # ============================================================
 
 def get_caption_and_buttons(
@@ -916,7 +1368,8 @@ def get_caption_and_buttons(
 
             f"━━━━━━━━━━━━━━━━━━━━\n"
 
-            f"📌 <b>Released & Verified</b> ✅"
+            f"📌 <b>Released & Verified</b> ✅\n"
+            f"🔎 <b>Search & Download</b>"
         )
 
         search_keyword = imdb_info.get(
@@ -933,9 +1386,7 @@ def get_caption_and_buttons(
             f"{files_text}\n\n"
 
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 <b>Released & Verified</b> ✅\n"
-            f"🔎 <b>Search & Download</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
+            f"📌 <b>Released & Verified</b> ✅"
         )
 
         search_keyword = movie_title
@@ -944,23 +1395,30 @@ def get_caption_and_buttons(
         [
             [
                 InlineKeyboardButton(
-                    "📥  DOWNLOAD MOVIE  📥",
-                    switch_inline_query_current_chat=search_keyword
+                    "📥 DOWNLOAD MOVIE 📥",
+                    switch_inline_query_current_chat=
+                    search_keyword
                 )
             ]
         ]
     )
 
-    return caption, buttons
+    return (
+        caption,
+        buttons
+    )
 
 
 # ============================================================
-# 1. PRIVATE FILE SAVE
+# PRIVATE FILE SAVE
 # ============================================================
 
 @Client.on_message(
     filters.private &
-    (filters.document | filters.video)
+    (
+        filters.document |
+        filters.video
+    )
 )
 async def save_direct_files(
     client,
@@ -979,6 +1437,7 @@ async def save_direct_files(
         media,
         "file_type"
     ):
+
         media.file_type = (
             "video"
             if message.video
@@ -989,6 +1448,7 @@ async def save_direct_files(
         media,
         "caption"
     ):
+
         media.caption = None
 
     try:
@@ -997,7 +1457,7 @@ async def save_direct_files(
             media
         )
 
-        is_success = (
+        success = (
             saved[0]
             if isinstance(
                 saved,
@@ -1012,7 +1472,7 @@ async def save_direct_files(
             "Unknown File"
         )
 
-        if is_success:
+        if success:
 
             await message.reply_text(
                 "✅ <b>Database-il save cheythu!</b>\n\n"
@@ -1023,7 +1483,7 @@ async def save_direct_files(
         else:
 
             await message.reply_text(
-                "ℹ️ <b>File already database-il undu:</b>\n\n"
+                "ℹ️ <b>File already database-il undu.</b>\n\n"
                 f"📁 <code>{file_name}</code>",
                 quote=True
             )
@@ -1038,12 +1498,15 @@ async def save_direct_files(
 
 
 # ============================================================
-# 2. CHANNEL AUTO POST
+# CHANNEL AUTO POST
 # ============================================================
 
 @Client.on_message(
     filters.chat(CHANNELS) &
-    (filters.document | filters.video)
+    (
+        filters.document |
+        filters.video
+    )
 )
 async def auto_post_to_group(
     client,
@@ -1058,9 +1521,9 @@ async def auto_post_to_group(
     if not media:
         return
 
-    # --------------------------------------------------------
-    # Save to database
-    # --------------------------------------------------------
+    # ========================================================
+    # SAVE DATABASE
+    # ========================================================
 
     try:
 
@@ -1068,6 +1531,7 @@ async def auto_post_to_group(
             media,
             "file_type"
         ):
+
             media.file_type = (
                 "video"
                 if message.video
@@ -1078,24 +1542,25 @@ async def auto_post_to_group(
             media,
             "caption"
         ):
+
             media.caption = None
 
         await save_file(
             media
         )
 
-    except Exception as err:
+    except Exception as e:
 
         print(
-            f"Channel DB Save Error: {err}"
+            f"Database save error: {e}"
         )
 
     if not UPDATE_CHANNEL:
         return
 
-    # --------------------------------------------------------
-    # Movie information
-    # --------------------------------------------------------
+    # ========================================================
+    # FILE NAME
+    # ========================================================
 
     file_name = getattr(
         media,
@@ -1103,12 +1568,39 @@ async def auto_post_to_group(
         "New Movie"
     )
 
-    base_title, year = extract_movie_info(
-        file_name
+    # ========================================================
+    # EXTRACT TITLE
+    # ========================================================
+
+    base_title, year = (
+        extract_movie_info(
+            file_name
+        )
     )
 
-    quality_info = extract_quality_details(
-        file_name
+    print(
+        f"[AUTO POST] "
+        f"Filename: {file_name}"
+    )
+
+    print(
+        f"[AUTO POST] "
+        f"Title: {base_title}"
+    )
+
+    print(
+        f"[AUTO POST] "
+        f"Year: {year}"
+    )
+
+    # ========================================================
+    # QUALITY
+    # ========================================================
+
+    quality_info = (
+        extract_quality_details(
+            file_name
+        )
     )
 
     line_entry = (
@@ -1121,9 +1613,9 @@ async def auto_post_to_group(
         else base_title.lower()
     )
 
-    # --------------------------------------------------------
-    # Lock
-    # --------------------------------------------------------
+    # ========================================================
+    # LOCK
+    # ========================================================
 
     async with LOCK:
 
@@ -1137,7 +1629,9 @@ async def auto_post_to_group(
                 cache_key
             ]
 
-            if line_entry not in data["entries"]:
+            if line_entry not in data[
+                "entries"
+            ]:
 
                 data["entries"].append(
                     line_entry
@@ -1166,19 +1660,43 @@ async def auto_post_to_group(
                 except Exception as e:
 
                     print(
-                        f"Edit Caption Error: {e}"
+                        f"Caption update error: {e}"
                     )
 
             return
 
         # ====================================================
-        # NEW MOVIE
+        # IMDb
         # ====================================================
 
         imdb_info = await get_imdb_details(
             base_title,
             year
         )
+
+        # ====================================================
+        # FALLBACK DATA
+        # ====================================================
+
+        if not imdb_info:
+
+            imdb_info = {
+                "title": base_title,
+                "year": year or "",
+                "display_title": (
+                    f"{base_title} ({year})"
+                    if year
+                    else base_title
+                ),
+                "search_title": base_title,
+                "rating": "N/A",
+                "genres": "N/A",
+                "story": (
+                    "Movie information "
+                    "is currently unavailable."
+                ),
+                "poster": None
+            }
 
         entries = [
             line_entry
@@ -1192,36 +1710,34 @@ async def auto_post_to_group(
             )
         )
 
-        # ----------------------------------------------------
-        # Get poster
-        # ----------------------------------------------------
+        # ====================================================
+        # POSTER URL
+        # ====================================================
 
-        poster_url = None
-
-        if imdb_info:
-
-            poster_url = imdb_info.get(
-                "poster"
-            )
-
-        poster_source = (
-            await download_image(
-                poster_url
-            )
-            if poster_url
-            else None
+        poster_url = imdb_info.get(
+            "poster"
         )
 
-        # ----------------------------------------------------
-        # Fallback poster
-        # ----------------------------------------------------
+        poster_source = None
+
+        if poster_url:
+
+            poster_source = (
+                await download_image(
+                    poster_url
+                )
+            )
+
+        # ====================================================
+        # FALLBACK PICS
+        # ====================================================
 
         if not poster_source and PICS:
 
             try:
 
-                fallback_url = random.choice(
-                    PICS
+                fallback_url = (
+                    random.choice(PICS)
                 )
 
                 poster_source = (
@@ -1233,12 +1749,12 @@ async def auto_post_to_group(
             except Exception as e:
 
                 print(
-                    f"Fallback poster error: {e}"
+                    f"Fallback image error: {e}"
                 )
 
-        # ----------------------------------------------------
-        # Generate professional poster
-        # ----------------------------------------------------
+        # ====================================================
+        # CREATE POSTER
+        # ====================================================
 
         generated_poster = None
 
@@ -1246,37 +1762,18 @@ async def auto_post_to_group(
 
             try:
 
-                temp_file = tempfile.NamedTemporaryFile(
+                temp = tempfile.NamedTemporaryFile(
                     suffix=".jpg",
                     delete=False
                 )
 
+                temp.close()
+
                 generated_poster = (
-                    temp_file.name
+                    temp.name
                 )
 
-                temp_file.close()
-
-                if not imdb_info:
-
-                    imdb_info = {
-                        "title": base_title,
-                        "year": year or "",
-                        "display_title": (
-                            f"{base_title} ({year})"
-                            if year
-                            else base_title
-                        ),
-                        "search_title": base_title,
-                        "rating": "N/A",
-                        "genres": "N/A",
-                        "story": (
-                            "No storyline available."
-                        ),
-                        "poster": poster_url,
-                    }
-
-                created = (
+                success = (
                     create_professional_poster(
                         poster_source,
                         imdb_info,
@@ -1285,91 +1782,95 @@ async def auto_post_to_group(
                     )
                 )
 
-                if not created:
+                if not success:
 
                     generated_poster = None
 
             except Exception as e:
 
                 print(
-                    f"Poster creation error: {e}"
+                    f"Poster generation error: {e}"
                 )
 
-        # ----------------------------------------------------
-        # Send
-        # ----------------------------------------------------
+        # ====================================================
+        # SEND GENERATED POSTER
+        # ====================================================
 
         sent_msg = None
 
-        if generated_poster and os.path.exists(
-            generated_poster
-        ):
+        if generated_poster:
 
             try:
 
-                sent_msg = await client.send_photo(
-                    chat_id=UPDATE_CHANNEL,
-                    photo=generated_poster,
-                    caption=caption,
-                    reply_markup=buttons,
-                    parse_mode=enums.ParseMode.HTML
+                sent_msg = (
+                    await client.send_photo(
+                        chat_id=UPDATE_CHANNEL,
+                        photo=generated_poster,
+                        caption=caption,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML
+                    )
                 )
 
-            except Exception as err:
+            except Exception as e:
 
                 print(
-                    f"Generated poster send error: {err}"
+                    f"Generated poster send error: {e}"
                 )
 
-        # ----------------------------------------------------
-        # If generated poster failed
-        # ----------------------------------------------------
+        # ====================================================
+        # ORIGINAL POSTER FALLBACK
+        # ====================================================
 
         if not sent_msg and poster_source:
 
             try:
 
-                sent_msg = await client.send_photo(
-                    chat_id=UPDATE_CHANNEL,
-                    photo=poster_source,
-                    caption=caption,
-                    reply_markup=buttons,
-                    parse_mode=enums.ParseMode.HTML
+                sent_msg = (
+                    await client.send_photo(
+                        chat_id=UPDATE_CHANNEL,
+                        photo=poster_source,
+                        caption=caption,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML
+                    )
                 )
 
-            except Exception as err:
+            except Exception as e:
 
                 print(
-                    f"Original poster send error: {err}"
+                    f"Original poster send error: {e}"
                 )
 
-        # ----------------------------------------------------
-        # Text fallback
-        # ----------------------------------------------------
+        # ====================================================
+        # TEXT FALLBACK
+        # ====================================================
 
         if not sent_msg:
 
             try:
 
-                sent_msg = await client.send_message(
-                    chat_id=UPDATE_CHANNEL,
-                    text=caption,
-                    reply_markup=buttons,
-                    parse_mode=enums.ParseMode.HTML,
-                    disable_web_page_preview=True
+                sent_msg = (
+                    await client.send_message(
+                        chat_id=UPDATE_CHANNEL,
+                        text=caption,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML,
+                        disable_web_page_preview=True
+                    )
                 )
 
-            except Exception as err:
+            except Exception as e:
 
                 print(
-                    f"Text post error: {err}"
+                    f"Text post error: {e}"
                 )
 
                 return
 
-        # ----------------------------------------------------
-        # Cache
-        # ----------------------------------------------------
+        # ====================================================
+        # CACHE
+        # ====================================================
 
         POST_CACHE[
             cache_key
@@ -1380,9 +1881,9 @@ async def auto_post_to_group(
             "quality_info": quality_info
         }
 
-        # ----------------------------------------------------
-        # Cleanup temporary files
-        # ----------------------------------------------------
+        # ====================================================
+        # CLEAN TEMP FILES
+        # ====================================================
 
         for temp_file in [
             poster_source,
@@ -1396,9 +1897,16 @@ async def auto_post_to_group(
                     if os.path.exists(
                         temp_file
                     ):
+
                         os.remove(
                             temp_file
                         )
 
                 except Exception:
                     pass
+
+        print(
+            f"[AUTO POST] "
+            f"Successfully posted: "
+            f"{imdb_info.get('display_title')}"
+        )
