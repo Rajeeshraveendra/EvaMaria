@@ -84,8 +84,12 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 res = requests.get("http://www.omdbapi.com/", params=params, timeout=5).json()
                 if res.get('Response') == 'True':
                     poster_url = res.get('Poster')
-                    if poster_url == 'N/A':
+                    if poster_url and poster_url != 'N/A':
+                        # പോസ്റ്റർ ഫുൾ HD ആക്കാൻ OMDb / Amazon ഇമേജ് റീസൈസ് ടാഗ് നീക്കം ചെയ്യുന്നു
+                        poster_url = re.sub(r'_SX\d+|_SY\d+|_CR\d+,\d+,\d+,\d+_|_AL_', '_SX1200_', poster_url)
+                    else:
                         poster_url = None
+
                     return {
                         'title': res.get('Title'),
                         'rating': res.get('imdbRating', 'N/A'),
@@ -141,6 +145,10 @@ async def get_poster(query, bulk=False, id=False, file=None):
         if plot and len(plot) > 800:
             plot = plot[0:800] + "..."
 
+        poster_url = movie.get('full-size cover url') or movie.get('cover url')
+        if poster_url:
+            poster_url = re.sub(r'_SX\d+|_SY\d+|_CR\d+,\d+,\d+,\d+_|_AL_', '_SX1200_', poster_url)
+
         return {
             'title': movie.get('title'),
             'votes': movie.get('votes'),
@@ -165,7 +173,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
             'release_date': date,
             'year': movie.get('year'),
             'genres': list_to_str(movie.get("genres")),
-            'poster': movie.get('full-size cover url'),
+            'poster': poster_url,
             'plot': plot,
             'rating': str(movie.get("rating")),
             'url': f'https://www.imdb.com/title/tt{movieid}'
