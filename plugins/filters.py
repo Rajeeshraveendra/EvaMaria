@@ -58,7 +58,7 @@ async def send_log_safe(client, log_txt):
         logger.error(f"Log Channel Error: {e}")
 
 async def safe_delete_messages(client, chat_id, message_ids, delay=10):
-    """10 second-il messages nirbandhamayum delete cheyyunnu"""
+    """മെസ്സേജുകൾ നിശ്ചിത സമയത്തിന് ശേഷം ഡിലീറ്റ് ചെയ്യുന്ന ഫംഗ്ഷൻ"""
     await asyncio.sleep(delay)
     try:
         await client.delete_messages(chat_id=chat_id, message_ids=message_ids)
@@ -87,7 +87,7 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. Cinema kittiyillengil
+    # 1. Cinema kittiyillengil (10 second-il delete aakunnu)
     if not files:
         log_txt = (
             f"❌ <b>#MovieNotFound</b>\n\n"
@@ -107,11 +107,9 @@ async def give_filter(client, message):
             parse_mode=enums.ParseMode.HTML
         )
         
-        # 10 second kazhiyumbol user-nte question-um bot-nte error reply-um delete aavunnu
         if is_group:
             asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, err_msg.id], delay=10))
         
-        # Vere function-lekku idhu repeat aavathirikkan execution stop cheyyunnu
         message.stop_propagation()
         return
 
@@ -161,5 +159,7 @@ async def give_filter(client, message):
             "user_msg_id": message.id,
             "bot_msg_id": result_msg.id
         }
+        # 120 സെക്കൻഡ് (2 മിനിറ്റ്) കഴിയുമ്പോൾ യൂസറുടെ ചോദ്യവും ബട്ടൺ ലിസ്റ്റും തനിയെ ഡിലീറ്റ് ആകുന്നു
+        asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, result_msg.id], delay=120))
 
     message.stop_propagation()
