@@ -16,6 +16,7 @@ from pyrogram.types import (
 
 from info import CHANNELS, PICS
 from database.ia_filterdb import save_file
+from utils import temp
 
 # ============================================================
 # CONFIG
@@ -35,12 +36,16 @@ OMDB_API_KEY = os.environ.get(
 
 LOGO_PATH = "assets/rrk_logo.png"
 
+# നിങ്ങളുടെ ചാനൽ, ഗ്രൂപ്പ് ലിങ്കുകൾ
+UPDATES_CHANNEL_LINK = "https://t.me/RRK_Movies"
+SUPPORT_GROUP_LINK = "https://t.me/RRK_Movies_Group"
+
 POST_CACHE = {}
 LOCK = asyncio.Lock()
 
 
 # ============================================================
-# BASIC TEXT CLEANING
+# BASIC TEXT CLEANING & EXTRACTION
 # ============================================================
 
 def clean_text(text):
@@ -48,11 +53,6 @@ def clean_text(text):
         return ""
     text = str(text).replace("\n", " ")
     return re.sub(r"\s+", " ", text).strip()
-
-
-# ============================================================
-# MOVIE TITLE EXTRACTION
-# ============================================================
 
 def extract_movie_info(filename):
     name = os.path.basename(filename)
@@ -100,11 +100,6 @@ def extract_movie_info(filename):
 
     return title, year
 
-
-# ============================================================
-# HTTP JSON HELPER
-# ============================================================
-
 def fetch_json(url):
     request = urllib.request.Request(
         url,
@@ -115,7 +110,7 @@ def fetch_json(url):
 
 
 # ============================================================
-# IMDb / OMDb SEARCH (TRUE UNCOMPRESSED POSTER RESOLVER)
+# OMDb DETAILS (INCLUDING RUNTIME, LANGUAGE ETC.)
 # ============================================================
 
 async def get_imdb_details(movie_name, year=None):
@@ -175,10 +170,12 @@ async def get_imdb_details(movie_name, year=None):
             movie_year = details.get("Year", year or "")
             rating = details.get("imdbRating", "N/A")
             genres = details.get("Genre", "N/A")
-            story = details.get("Plot", "No storyline available.")
+            runtime = details.get("Runtime", "N/A")
+            language = details.get("Language", "Malayalam")
+            m_type = details.get("Type", "Movie").capitalize()
             poster = details.get("Poster")
 
-            # ക്രോപ്പിംഗും റീസൈസിംഗും ഒഴിവാക്കി യഥാർത്ഥ ഹൈ-റെസല്യൂഷൻ ചിത്രം എടുക്കുന്നു
+            # ഒറിജിനൽ അൺകംപ്രസ്സ്ഡ് പോസ്റ്റർ എടുക്കുന്നു
             if poster and poster != "N/A":
                 poster = re.sub(r"\._V1_.*?\.", "._V1_.", poster)
             else:
@@ -187,13 +184,14 @@ async def get_imdb_details(movie_name, year=None):
             return {
                 "title": title,
                 "year": movie_year,
-                "display_title": f"{title} ({movie_year})" if movie_year else title,
-                "search_title": title,
+                "type": m_type,
+                "runtime": runtime,
+                "language": language,
                 "rating": rating,
                 "genres": genres,
-                "story": story,
                 "poster": poster,
-                "imdb_id": imdb_id
+                "imdb_id": imdb_id,
+                "url": f"https://www.imdb.com/title/{imdb_id}"
             }
 
         except Exception as e:
@@ -204,7 +202,7 @@ async def get_imdb_details(movie_name, year=None):
 
 
 # ============================================================
-# IMAGE DOWNLOAD & WATERMARK LOGO
+# LOGO WATERMARK
 # ============================================================
 
 async def prepare_hd_poster_with_logo(url):
@@ -223,22 +221,17 @@ async def prepare_hd_poster_with_logo(url):
             temp_in.write(data)
             temp_in.close()
 
-            # ഒറിജിനൽ ആസ്പെക്ട് റേഷ്യോ നിലനിർത്തി ലോഗോ മാത്രം ചേർക്കുന്നു
             img = Image.open(temp_in.name).convert("RGBA")
             
             if os.path.exists(LOGO_PATH):
                 logo = Image.open(LOGO_PATH).convert("RGBA")
-                # പോസ്റ്ററിന്റെ വലിപ്പത്തിന് അനുസരിച്ച് ലോഗോ റീസൈസ് ചെയ്യുന്നു
                 logo_width = int(img.width * 0.22)
                 logo_height = int(logo.height * (logo_width / logo.width))
                 logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
-                
-                # മുകളിൽ ഇടത് കോണിൽ ലോഗോ സ്ഥാപിക്കുന്നു
                 img.paste(logo, (int(img.width * 0.04), int(img.height * 0.03)), logo)
 
             out_temp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
             out_temp.close()
-
             img.convert("RGB").save(out_temp.name, "JPEG", quality=98, optimize=True)
 
             try:
@@ -248,51 +241,59 @@ async def prepare_hd_poster_with_logo(url):
 
             return out_temp.name
         except Exception as e:
-            print(f"Logo/Poster processing error: {e}")
+            print(f"Logo processing error: {e}")
             return None
 
     return await loop.run_in_executor(None, process)
 
 
 # ============================================================
-# CAPTION & BUTTONS
+# CAPTION & BUTTON FORMAT (SG_SEARCH STYLED)
 # ============================================================
 
-def get_caption_and_buttons(movie_title, entries, imdb_info=None):
-    files_text = "\n".join(entries)
+def get_caption_and_buttons(movie_title, imdb_info=None):
+    bot_username = temp.U_NAME or "RRK_Movies_AutoBot"
 
     if imdb_info:
+        title = imdb_info.get("title", movie_title)
+        m_type = imdb_info.get("type", "Movie")
+        year = imdb_info.get("year", "")
+        runtime = imdb_info.get("runtime", "N/A")
+        language = imdb_info.get("language", "Malayalam")
+        genres = imdb_info.get("genres", "N/A")
+        rating = imdb_info.get("rating", "N/A")
+        imdb_url = imdb_info.get("url", f"https://www.google.com/search?q={urllib.parse.quote(movie_title)}")
+
         caption = (
-            f"🎬 <b>{imdb_info['display_title']}</b>\n\n"
-            f"⭐ <b>IMDb Rating :</b> {imdb_info['rating']}/10\n"
-            f"🎭 <b>Genre :</b> {imdb_info['genres']}\n"
-            f"📅 <b>Release :</b> {imdb_info['year']}\n\n"
-            f"📖 <b>Storyline :</b>\n<i>{imdb_info['story']}</i>\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎞 <b>Available Files</b>\n"
-            f"{files_text}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 <b>Released & Verified</b> ✅\n"
-            f"🔎 <b>Search & Download</b>"
+            f"▫ <b>Title:</b> {title}\n"
+            f"▫ <b>Type:</b> {m_type}\n"
+            f"▫ <b>Year:</b> {year}\n"
+            f"▫ <b>Runtime:</b> {runtime}\n"
+            f"▫ <b>Language:</b> {language}\n"
+            f"▫ <b>Genre:</b> {genres}\n"
+            f"▫ <b>Rating:</b> {rating}/10\n"
+            f"▫ <b>More Details:</b> <a href='{imdb_url}'>read here</a>\n\n"
+            f"<i>Click the button below to search files...!</i>"
         )
-        search_keyword = imdb_info.get("search_title", movie_title)
+        search_param = f"{title} {year}".strip()
     else:
         caption = (
-            f"🎬 <b>{movie_title}</b>\n\n"
-            f"🎞 <b>Available Files</b>\n"
-            f"{files_text}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 <b>Released & Verified</b> ✅"
+            f"▫ <b>Title:</b> {movie_title}\n"
+            f"▫ <b>Type:</b> Movie\n\n"
+            f"<i>Click the button below to search files...!</i>"
         )
-        search_keyword = movie_title
+        search_param = movie_title
 
+    start_link = f"https://t.me/{bot_username}?start={urllib.parse.quote(search_param)}"
+    
     buttons = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
-                    "📥 DOWNLOAD MOVIE 📥",
-                    switch_inline_query_current_chat=search_keyword
-                )
+                InlineKeyboardButton("🔍 Click to Search Files", url=start_link)
+            ],
+            [
+                InlineKeyboardButton("📢 Updates", url=UPDATES_CHANNEL_LINK),
+                InlineKeyboardButton("👥 Group", url=SUPPORT_GROUP_LINK)
             ]
         ]
     )
@@ -333,7 +334,7 @@ async def save_direct_files(client, message):
             )
     except Exception as e:
         await message.reply_text(
-            f"⚠️️ <b>Save cheyyan kazhinjilla:</b>\n<code>{e}</code>",
+            f"⚠️ <b>Save cheyyan kazhinjilla:</b>\n<code>{e}</code>",
             quote=True
         )
 
@@ -362,59 +363,25 @@ async def auto_post_to_group(client, message):
 
     file_name = getattr(media, "file_name", "New Movie")
     base_title, year = extract_movie_info(file_name)
-    line_entry = f"🎬 <code>{file_name}</code>"
     cache_key = f"{base_title.lower()}_{year}" if year else base_title.lower()
 
     async with LOCK:
+        # ഒരു സിനിമയ്ക്ക് ചാനലിൽ ഒറ്റ പോസ്റ്റ് മാത്രം നൽകുന്നു
         if cache_key in POST_CACHE:
-            data = POST_CACHE[cache_key]
-            if line_entry not in data["entries"]:
-                data["entries"].append(line_entry)
-                caption, buttons = get_caption_and_buttons(
-                    base_title,
-                    data["entries"],
-                    data.get("imdb_info")
-                )
-                try:
-                    await client.edit_message_caption(
-                        chat_id=UPDATE_CHANNEL,
-                        message_id=data["msg_id"],
-                        caption=caption,
-                        reply_markup=buttons,
-                        parse_mode=enums.ParseMode.HTML
-                    )
-                except Exception as e:
-                    print(f"Caption update error: {e}")
             return
 
         imdb_info = await get_imdb_details(base_title, year)
+        caption, buttons = get_caption_and_buttons(base_title, imdb_info)
 
-        if not imdb_info:
-            imdb_info = {
-                "title": base_title,
-                "year": year or "",
-                "display_title": f"{base_title} ({year})" if year else base_title,
-                "search_title": base_title,
-                "rating": "N/A",
-                "genres": "N/A",
-                "story": "Movie information is currently unavailable.",
-                "poster": None
-            }
-
-        entries = [line_entry]
-        caption, buttons = get_caption_and_buttons(base_title, entries, imdb_info)
-
-        raw_poster_url = imdb_info.get("poster")
+        raw_poster_url = imdb_info.get("poster") if imdb_info else None
         if not raw_poster_url and PICS:
             raw_poster_url = random.choice(PICS)
 
-        # ഫുൾ ഒറിജിനൽ ഹൈ-റെസല്യൂഷൻ പോസ്റ്റർ ഡൗൺലോഡ് ചെയ്ത് ലോഗോ ചേർക്കുന്നു
         processed_poster = None
         if raw_poster_url:
             processed_poster = await prepare_hd_poster_with_logo(raw_poster_url)
 
         sent_msg = None
-
         if processed_poster:
             try:
                 sent_msg = await client.send_photo(
@@ -425,9 +392,8 @@ async def auto_post_to_group(client, message):
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as e:
-                print(f"Processed poster send error: {e}")
+                print(f"Post send error: {e}")
 
-        # ലോഗോ ചേർക്കുന്നതിൽ പിഴവുണ്ടായാൽ ബാക്കപ്പായി ഡയറക്ട് ഇമേജ് അയക്കുന്നു
         if not sent_msg and raw_poster_url:
             try:
                 sent_msg = await client.send_photo(
@@ -438,9 +404,8 @@ async def auto_post_to_group(client, message):
                     parse_mode=enums.ParseMode.HTML
                 )
             except Exception as e:
-                print(f"Direct poster send error: {e}")
+                print(f"Direct poster error: {e}")
 
-        # ടെക്സ്റ്റ് ബാക്കപ്പ്
         if not sent_msg:
             try:
                 sent_msg = await client.send_message(
@@ -451,19 +416,13 @@ async def auto_post_to_group(client, message):
                     disable_web_page_preview=True
                 )
             except Exception as e:
-                print(f"Text post error: {e}")
+                print(f"Text send error: {e}")
                 return
 
-        POST_CACHE[cache_key] = {
-            "msg_id": sent_msg.id,
-            "entries": entries,
-            "imdb_info": imdb_info
-        }
+        POST_CACHE[cache_key] = sent_msg.id
 
         if processed_poster and os.path.exists(processed_poster):
             try:
                 os.remove(processed_poster)
             except Exception:
                 pass
-
-        print(f"[AUTO POST] Successfully posted: {imdb_info.get('display_title')}")
