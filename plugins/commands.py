@@ -9,7 +9,7 @@ from Script import script
 from pyrogram import Client, filters, enums
 from pyrogram.errors import ChatAdminRequired, FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from database.ia_filterdb import Media, get_file_details, unpack_new_file_id
+from database.ia_filterdb import Media, get_file_details, get_search_results, unpack_new_file_id
 from database.users_chats_db import db
 from info import CHANNELS, ADMINS, AUTH_CHANNEL, LOG_CHANNEL, PICS, BATCH_FILE_CAPTION, CUSTOM_FILE_CAPTION, PROTECT_CONTENT
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
@@ -27,12 +27,10 @@ async def delete_group_request_after_pm(client, user_id, delay=10):
         msg_data = USER_GRP_MSGS.pop(user_id, None)
         if msg_data:
             await asyncio.sleep(delay)
-            # User chodicha message delete cheyyunnu
             try:
                 await client.delete_messages(chat_id=msg_data["chat_id"], message_ids=msg_data["user_msg_id"])
             except Exception:
                 pass
-            # Bot ayacha result message delete cheyyunnu
             try:
                 await client.delete_messages(chat_id=msg_data["chat_id"], message_ids=msg_data["bot_msg_id"])
             except Exception:
@@ -110,6 +108,37 @@ async def start(client, message):
             except Exception as e:
                 logger.error(f"LOG_CHANNEL Error: {e}")
 
+    # ചാനൽ സബ്സ്ക്രിപ്ഷൻ പരിശോധന
+    if AUTH_CHANNEL and not await is_subscribed(client, message):
+        try:
+            invite_link = await client.create_chat_invite_link(int(AUTH_CHANNEL))
+        except ChatAdminRequired:
+            logger.error("Make sure Bot is admin in Forcesub channel")
+            return
+        btn = [
+            [
+                InlineKeyboardButton(
+                    "🤖 Join Updates Channel", url=invite_link.invite_link
+                )
+            ]
+        ]
+
+        if len(message.command) > 1 and message.command[1] != "subscribe":
+            try:
+                kk, file_id = message.command[1].split("_", 1)
+                pre = 'checksubp' if kk == 'filep' else 'checksub' 
+                btn.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
+            except (IndexError, ValueError):
+                btn.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
+        await client.send_message(
+            chat_id=message.from_user.id,
+            text="**Please Join My Updates Channel to use this Bot!**",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.MARKDOWN
+        )
+        return
+
+    # സാധാരണ /start
     if len(message.command) != 2:
         buttons = [[
             InlineKeyboardButton('➕ 𝙰𝚍𝚍 𝙼𝚎 𝚃𝚘 𝚈𝚘𝚞𝚛 𝙶𝚛𝚘𝚞𝚙𝚜 ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
@@ -129,36 +158,7 @@ async def start(client, message):
         )
         return
 
-    if AUTH_CHANNEL and not await is_subscribed(client, message):
-        try:
-            invite_link = await client.create_chat_invite_link(int(AUTH_CHANNEL))
-        except ChatAdminRequired:
-            logger.error("Make sure Bot is admin in Forcesub channel")
-            return
-        btn = [
-            [
-                InlineKeyboardButton(
-                    "🤖 Join Updates Channel", url=invite_link.invite_link
-                )
-            ]
-        ]
-
-        if message.command[1] != "subscribe":
-            try:
-                kk, file_id = message.command[1].split("_", 1)
-                pre = 'checksubp' if kk == 'filep' else 'checksub' 
-                btn.append([InlineKeyboardButton(" 🔄 Try Again", callback_data=f"{pre}#{file_id}")])
-            except (IndexError, ValueError):
-                btn.append([InlineKeyboardButton(" 🔄 Try Again", url=f"https://t.me/{temp.U_NAME}?start={message.command[1]}")])
-        await client.send_message(
-            chat_id=message.from_user.id,
-            text="**Please Join My Updates Channel to use this Bot!**",
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.MARKDOWN
-        )
-        return
-
-    if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
+    if message.command[1] in ["subscribe", "error", "okay", "help"]:
         buttons = [[
             InlineKeyboardButton('➕ 𝙰𝚍𝚍 𝙼𝚎 𝚃𝚘 𝚈𝚘𝚞𝚛 𝙶𝚛𝚘𝚞𝚙𝚜 ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
             ],[
@@ -178,12 +178,63 @@ async def start(client, message):
         return
 
     data = message.command[1]
-    try:
-        pre, file_id = data.split('_', 1)
-    except:
-        file_id = data
-        pre = ""
 
+    # ============================================================
+    # 1. SEARCH BUTTON HANDLER (Click to Search Files വഴി വരുമ്പോൾ)
+    # ============================================================
+    if data.startswith("search_"):
+        raw_token = data.replace("search_", "")
+        padding = "=" * (-len(raw_token) % 4)
+        try:
+            search_query = base64.urlsafe_b64decode(raw_token + padding).decode().strip()
+        except Exception:
+            search_query = raw_token.replace("_", " ").strip()
+
+        files, offset, total_results = await get_search_results(search_query, max_results=10)
+
+        # സിനിമ കിട്ടിയില്ലെങ്കിൽ വർഷം ഒഴിവാക്കി പേര് മാത്രം വച്ച് തിരയുന്നു
+        if not files:
+            alt_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", search_query).strip()
+            if alt_query != search_query:
+                files, offset, total_results = await get_search_results(alt_query, max_results=10)
+                if files:
+                    search_query = alt_query
+
+        if not files:
+            return await message.reply_text(
+                f"❌ <b>Files Kandethaan Kazhinjilla!</b>\n\n"
+                f"🔍 <b>Query:</b> <code>{search_query}</code>\n\n"
+                f"💡 <i>Spelling correct aano ennu parishodhikuka, allenkil cinemayude peru direct ivide message aayi ayakkuka.</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
+
+        btn = []
+        for file in files:
+            file_name = file.file_name
+            size = get_size(file.file_size)
+            btn_title = f"[{size}] {file_name}"
+            if len(btn_title) > 55:
+                btn_title = btn_title[:52] + ".."
+            btn.append([InlineKeyboardButton(btn_title, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+
+        if offset != "":
+            btn.append([InlineKeyboardButton("Next >>", callback_data=f"next_{search_query}_{offset}")])
+
+        res_text = (
+            f"<b>Search Query:</b> <code>{search_query}</code>\n"
+            f"<b>Total Results:</b> {total_results}\n"
+            f"<b>Page:</b> 1\n\n"
+            f"🔻 <i>Tap on the file button and then start to download.</i>"
+        )
+        return await message.reply_text(
+            res_text,
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+
+    # ============================================================
+    # 2. BATCH & DSTORE HANDLERS
+    # ============================================================
     if data.split("-", 1)[0] == "BATCH":
         sts = await message.reply("Please wait")
         file_id = data.split("-", 1)[1]
@@ -330,6 +381,15 @@ async def start(client, message):
         asyncio.create_task(delete_group_request_after_pm(client, message.from_user.id, delay=10))
         return await sts.delete()
 
+    # ============================================================
+    # 3. DIRECT FILE RETRIEVAL (file_ / filep_)
+    # ============================================================
+    try:
+        pre, file_id = data.split('_', 1)
+    except:
+        file_id = data
+        pre = ""
+
     files_ = await get_file_details(file_id)           
     if not files_:
         try:
@@ -387,7 +447,6 @@ async def start(client, message):
     if f_caption is None:
         f_caption = f"{files.file_name}"
 
-    # User-nu file ayakkunnu
     await client.send_cached_media(
         chat_id=message.from_user.id,
         file_id=file_id,
@@ -414,10 +473,7 @@ async def start(client, message):
     except Exception as e:
         logger.error(f"Log Error: {e}")
 
-    # Success msg PM-il ayakkunnu
     await send_completion_message(client, message.from_user.id)
-
-    # User PM-il file kitti kazhinjathukond, group-ile avarude message 10 sec-il auto delete aakunnu
     asyncio.create_task(delete_group_request_after_pm(client, message.from_user.id, delay=10))
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))
