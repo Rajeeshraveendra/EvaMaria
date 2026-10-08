@@ -3,10 +3,10 @@ import re
 import asyncio
 import logging
 from pyrogram import filters, Client, enums
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from database.ia_filterdb import get_search_results, get_file_details
 from database.connections_mdb import active_connection
-from utils import get_settings, get_size, is_subscribed, save_group_settings, temp, search_gagala
+from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,6 @@ async def send_log_safe(client, log_txt):
         logger.error(f"Log Channel Error: {e}")
 
 async def safe_delete_messages(client, chat_id, message_ids, delay=10):
-    """മെസ്സേജുകൾ നിശ്ചിത സമയത്തിന് ശേഷം ഡിലീറ്റ് ചെയ്യുന്നു"""
     await asyncio.sleep(delay)
     try:
         await client.delete_messages(chat_id=chat_id, message_ids=message_ids)
@@ -80,12 +79,9 @@ async def give_filter(client, message):
     is_group = message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
     chat_title = message.chat.title if is_group else "Bot PM / Personal"
 
-    grp_id = message.chat.id
-
     if AUTH_CHANNEL and not await is_subscribed(client, message):
         return
 
-    # ഗ്രൂപ്പിലെ അനാവശ്യ സ്പാം പരസ്യങ്ങൾ തടയുന്നു
     if is_group:
         spam_words = ["xxx", "18+", "playnow", "oiled", "massage", "moaning", "homemade", "sweet dreams", "audition"]
         if any(w in text.lower() for w in spam_words) or (message.forward_date and userid not in ADMINS):
@@ -97,34 +93,7 @@ async def give_filter(client, message):
 
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. സിനിമ കൃത്യമായി കിട്ടിയില്ലെങ്കിൽ (SPELL CHECK / SUGGESTIONS)
     if not files:
-        # സ്പെല്ലിംഗ് തെറ്റാണെങ്കിൽ ഗൂഗിളിൽ നിന്നോ ഡാറ്റാബേസിൽ നിന്നോ സമാന പേരുകൾ തിരയുന്നു
-        suggestions = []
-        try:
-            suggestions = await search_gagala(text)
-        except Exception:
-            pass
-
-        if suggestions:
-            btn = []
-            for mov in suggestions[:6]:  # മികച്ച 6 സജഷനുകൾ ബട്ടണുകളാക്കുന്നു
-                btn.append([InlineKeyboardButton(text=f"🎬 {mov}", callback_data=f"spolling#{mov}")])
-
-            suggest_msg = await message.reply_text(
-                f"👋 ഹലോ {user_mention},\n\n"
-                f"❓ നിങ്ങൾ ഉദ്ദേശിച്ചത് താഴെ പറയുന്നവയിൽ ഏതെങ്കിലും ആണോ?\n"
-                f"<i>(ശരിയായതിൽ ക്ലിക്ക് ചെയ്യുക):</i>",
-                reply_markup=InlineKeyboardMarkup(btn),
-                parse_mode=enums.ParseMode.HTML
-            )
-            if is_group:
-                # 45 സെക്കൻഡിനുള്ളിൽ സജഷൻ മെസ്സേജ് ഡിലീറ്റ് ആകും
-                asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, suggest_msg.id], delay=45))
-            message.stop_propagation()
-            return
-
-        # സജഷനും കിട്ടിയില്ലെങ്കിൽ മാത്രം നോട്ട് ഫൗണ്ട് കാണിക്കുന്നു
         log_txt = (
             f"❌ <b>#MovieNotFound</b>\n\n"
             f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -135,10 +104,10 @@ async def give_filter(client, message):
 
         btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={text}+movie")]]
         err_msg = await message.reply_text(
-            f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല!</b>\n\n"
-            f"ഹലോ {user_mention},\n"
-            f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് :</b> <code>{text}</code>\n\n"
-            f"💡 ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.",
+            f"❌ <b>Cinema kandethaan kazhinjilla!</b>\n\n"
+            f"Hello {user_mention},\n"
+            f"📌 <b>Ningal thiranjathu :</b> <code>{text}</code>\n\n"
+            f"💡 Dhayavayi shariyaya spelling parishodhikuka.",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -149,7 +118,6 @@ async def give_filter(client, message):
         message.stop_propagation()
         return
 
-    # 2. സിനിമ കണ്ടെത്തിയാൽ ഫയലുകൾ കാണിക്കുന്നു
     log_txt = (
         f"🎬 <b>#FileSentToPM</b>\n\n"
         f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -186,8 +154,8 @@ async def give_filter(client, message):
     if offset != "":
         total_pages = (total_results + 9) // 10
         btn.append([
-            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages"),
-            InlineKeyboardButton("Next ⏩", callback_data=f"next_{text}_{offset}")
+            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages_info"),
+            InlineKeyboardButton("Next ⏩", callback_data=f"next_{text}_{offset}_1")
         ])
 
     result_msg = await message.reply_text(
@@ -205,3 +173,68 @@ async def give_filter(client, message):
         asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, result_msg.id], delay=120))
 
     message.stop_propagation()
+
+# ============================================================
+# PAGINATION CALLBACK HANDLER (Next / Back Work Aavaan)
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^next_"))
+async def next_page_handler(client, query: CallbackQuery):
+    try:
+        _, text, offset, curr_page = query.data.split("_", 3)
+        curr_page = int(curr_page)
+    except Exception:
+        return await query.answer("Kooduthal results illa!", show_alert=True)
+
+    files, next_offset, total_results = await get_search_results(text, offset=int(offset), max_results=10)
+    if not files:
+        return await query.answer("Avasanathe page aayi!", show_alert=True)
+
+    total_pages = (total_results + 9) // 10
+    new_page = curr_page + 1
+
+    btn = []
+    for file in files:
+        raw_name = file.file_name
+        size = get_size(file.file_size)
+        audio = get_audio_tag(raw_name)
+        quality = get_quality_tag(raw_name)
+
+        cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
+        cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
+        cleaned_name = re.sub(' +', ' ', cleaned_name)
+
+        tag_parts = [size]
+        if audio:
+            tag_parts.append(audio)
+        if quality:
+            tag_parts.append(quality)
+        tag_str = " | ".join(tag_parts)
+
+        if len(cleaned_name) > 20:
+            cleaned_name = cleaned_name[:18] + ".."
+
+        btn_caption = f"🎬 [{tag_str}] {cleaned_name}"
+        btn.append([InlineKeyboardButton(btn_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+
+    page_btns = []
+    # Back button
+    prev_offset = max(0, int(offset) - 10)
+    page_btns.append(InlineKeyboardButton("⏪ Back", callback_data=f"next_{text}_{prev_offset}_{new_page - 2}"))
+    page_btns.append(InlineKeyboardButton(f"{new_page}/{total_pages} Pages", callback_data="pages_info"))
+
+    # Next button (kooduthal undengil maathram)
+    if next_offset != "":
+        page_btns.append(InlineKeyboardButton("Next ⏩", callback_data=f"next_{text}_{next_offset}_{new_page}"))
+
+    btn.append(page_btns)
+
+    try:
+        await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+        await query.answer()
+    except Exception as e:
+        logger.error(f"Page edit error: {e}")
+        await query.answer()
+
+@Client.on_callback_query(filters.regex(r"^pages_info"))
+async def pages_info_click(client, query: CallbackQuery):
+    await query.answer("Current Page Number", show_alert=False)
