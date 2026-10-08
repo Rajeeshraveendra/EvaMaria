@@ -278,7 +278,7 @@ async def spelling_click_handler(client, query: CallbackQuery):
         user_id = user.id
         chat_title = query.message.chat.title if query.message.chat.title else "Bot PM"
 
-        # Admin Log Channel-ilekku request format cheythu ayakkunnu
+        # Admin Log Channel-ilekku request ayakkunnu
         req_log = (
             f"📥 <b>#NewMovieRequest</b>\n\n"
             f"🎬 <b>Requested Movie:</b> <code>{movie_name}</code>\n"
@@ -288,11 +288,14 @@ async def spelling_click_handler(client, query: CallbackQuery):
         )
         await send_log_safe(client, req_log)
 
-        # User-nu attractive notification alert
-        await query.answer(
-            f"⚠️ '{movie_name}' ippol labhyamalla!\n\n✅ Request adminu vijayakaramaayi ayachittundu. Vegam thanne upload cheyyunnathaannu.",
-            show_alert=True
+        # Popup Alert-ൽ മലയാളവും ഇംഗ്ലീഷും ഒന്നിച്ച് നൽകുന്നു
+        alert_msg = (
+            f"⚠️ '{movie_name}' നിലവിൽ ലഭ്യമല്ല!\n"
+            f"Movie not available!\n\n"
+            f"✅ റിക്വസ്റ്റ് അഡ്മിന് അയച്ചിട്ടുണ്ട്. ഉടൻ ചേർക്കാം!\n"
+            f"Request sent to admin. Will be uploaded soon!"
         )
+        await query.answer(alert_msg, show_alert=True)
 
         # Chat-ile message request confirmation aayi edit cheyyunnu (Malayalam + English)
         req_confirm_text = (
