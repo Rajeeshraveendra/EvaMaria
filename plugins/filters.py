@@ -264,16 +264,56 @@ async def give_filter(client, message):
 
 
 # ============================================================
-# CALLBACK: SPELL CHECK CLICK HANDLER
+# CALLBACK: SPELL CHECK CLICK & AUTO REQUEST HANDLER
 # ============================================================
 @Client.on_callback_query(filters.regex(r"^spolling#"))
 async def spelling_click_handler(client, query: CallbackQuery):
     movie_name = query.data.split("#", 1)[1]
     files, offset, total_results = await get_search_results(movie_name, max_results=10)
     
+    # 1. Database-il file illenkil Adminu request ayakkunnu
     if not files:
-        return await query.answer(f"'{movie_name}' ഫയലുകൾ ഡാറ്റാബേസിൽ ലഭ്യമല്ല!", show_alert=True)
+        user = query.from_user
+        user_mention = user.mention
+        user_id = user.id
+        chat_title = query.message.chat.title if query.message.chat.title else "Bot PM"
 
+        # Admin Log Channel-ilekku request format cheythu ayakkunnu
+        req_log = (
+            f"📥 <b>#NewMovieRequest</b>\n\n"
+            f"🎬 <b>Requested Movie:</b> <code>{movie_name}</code>\n"
+            f"👤 <b>Requested By:</b> {user_mention} (<code>{user_id}</code>)\n"
+            f"👥 <b>From Chat:</b> <b>{chat_title}</b>\n\n"
+            f"⚡ <i>Dhayavayi ee movie database-il upload cheyyuka!</i>"
+        )
+        await send_log_safe(client, req_log)
+
+        # User-nu attractive notification alert
+        await query.answer(
+            f"⚠️ '{movie_name}' ippol labhyamalla!\n\n✅ Request adminu vijayakaramaayi ayachittundu. Vegam thanne upload cheyyunnathaannu.",
+            show_alert=True
+        )
+
+        # Chat-ile message request confirmation aayi edit cheyyunnu (Malayalam + English)
+        req_confirm_text = (
+            f"🎬 <b>സിനിമ / Movie :</b> <code>{movie_name}</code>\n\n"
+            f"❌ <b>ഈ സിനിമ നിലവിൽ ഡാറ്റാബേസിൽ ലഭ്യമല്ല!</b>\n"
+            f"<i>This movie is currently not available in our database.</i>\n\n"
+            f"✅ <b>താങ്കളുടെ റിക്വസ്റ്റ് അഡ്മിന് വിജയകരമായി അയച്ചിട്ടുണ്ട്. ഉടൻ അപ്‌ലോഡ് ചെയ്യുന്നതാണ്!</b>\n"
+            f"<i>Your request has been forwarded to the admin. It will be uploaded soon!</i>"
+        )
+        
+        btn = [[
+            InlineKeyboardButton("📢 Updates Channel", url="https://t.me/RRK_Movies")
+        ]]
+
+        return await query.message.edit_text(
+            req_confirm_text,
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+
+    # 2. File undenkil list cheyyunnu
     btn = []
     for file in files:
         raw_name = file.file_name
