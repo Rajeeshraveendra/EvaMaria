@@ -3,6 +3,7 @@ import asyncio
 import os
 import random
 import json
+import base64
 import urllib.request
 import urllib.parse
 import tempfile
@@ -36,7 +37,6 @@ OMDB_API_KEY = os.environ.get(
 
 LOGO_PATH = "assets/rrk_logo.png"
 
-# നിങ്ങളുടെ ചാനൽ, ഗ്രൂപ്പ് ലിങ്കുകൾ
 UPDATES_CHANNEL_LINK = "https://t.me/RRK_Movies"
 SUPPORT_GROUP_LINK = "https://t.me/RRK_Movies_Group"
 
@@ -110,7 +110,7 @@ def fetch_json(url):
 
 
 # ============================================================
-# OMDb DETAILS (INCLUDING RUNTIME, LANGUAGE ETC.)
+# OMDb DETAILS
 # ============================================================
 
 async def get_imdb_details(movie_name, year=None):
@@ -175,7 +175,6 @@ async def get_imdb_details(movie_name, year=None):
             m_type = details.get("Type", "Movie").capitalize()
             poster = details.get("Poster")
 
-            # ഒറിജിനൽ അൺകംപ്രസ്സ്ഡ് പോസ്റ്റർ എടുക്കുന്നു
             if poster and poster != "N/A":
                 poster = re.sub(r"\._V1_.*?\.", "._V1_.", poster)
             else:
@@ -248,7 +247,7 @@ async def prepare_hd_poster_with_logo(url):
 
 
 # ============================================================
-# CAPTION & BUTTON FORMAT (SG_SEARCH STYLED)
+# CAPTION & BUTTON FORMAT
 # ============================================================
 
 def get_caption_and_buttons(movie_title, imdb_info=None):
@@ -275,16 +274,18 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
             f"▫ <b>More Details:</b> <a href='{imdb_url}'>read here</a>\n\n"
             f"<i>Click the button below to search files...!</i>"
         )
-        search_param = f"{title} {year}".strip()
+        search_query = f"{title} {year}".strip()
     else:
         caption = (
             f"▫ <b>Title:</b> {movie_title}\n"
             f"▫ <b>Type:</b> Movie\n\n"
             f"<i>Click the button below to search files...!</i>"
         )
-        search_param = movie_title
+        search_query = movie_title
 
-    start_link = f"https://t.me/{bot_username}?start={urllib.parse.quote(search_param)}"
+    # Base64 URL-safe encoding vazhi space issue solve cheyyunnu
+    encoded_str = base64.urlsafe_b64encode(search_query.encode()).decode().rstrip("=")
+    start_link = f"https://t.me/{bot_username}?start=search_{encoded_str}"
     
     buttons = InlineKeyboardMarkup(
         [
@@ -302,45 +303,7 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
 
 
 # ============================================================
-# PRIVATE FILE SAVE
-# ============================================================
-
-@Client.on_message(filters.private & (filters.document | filters.video))
-async def save_direct_files(client, message):
-    media = message.document or message.video
-    if not media:
-        return
-
-    if not hasattr(media, "file_type"):
-        media.file_type = "video" if message.video else "document"
-
-    if not hasattr(media, "caption"):
-        media.caption = None
-
-    try:
-        saved = await save_file(media)
-        success = saved[0] if isinstance(saved, tuple) else saved
-        file_name = getattr(media, "file_name", "Unknown File")
-
-        if success:
-            await message.reply_text(
-                f"✅ <b>Database-il save cheythu!</b>\n\n📁 <code>{file_name}</code>",
-                quote=True
-            )
-        else:
-            await message.reply_text(
-                f"ℹ️ <b>File already database-il undu.</b>\n\n📁 <code>{file_name}</code>",
-                quote=True
-            )
-    except Exception as e:
-        await message.reply_text(
-            f"⚠️ <b>Save cheyyan kazhinjilla:</b>\n<code>{e}</code>",
-            quote=True
-        )
-
-
-# ============================================================
-# CHANNEL AUTO POST
+# AUTO POST HANDLER
 # ============================================================
 
 @Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
@@ -366,7 +329,6 @@ async def auto_post_to_group(client, message):
     cache_key = f"{base_title.lower()}_{year}" if year else base_title.lower()
 
     async with LOCK:
-        # ഒരു സിനിമയ്ക്ക് ചാനലിൽ ഒറ്റ പോസ്റ്റ് മാത്രം നൽകുന്നു
         if cache_key in POST_CACHE:
             return
 
