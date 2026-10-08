@@ -6,7 +6,7 @@ from pyrogram import filters, Client, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database.ia_filterdb import get_search_results, get_file_details
 from database.connections_mdb import active_connection
-from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
+from utils import get_settings, get_size, is_subscribed, save_group_settings, temp, search_gagala
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ async def send_log_safe(client, log_txt):
         logger.error(f"Log Channel Error: {e}")
 
 async def safe_delete_messages(client, chat_id, message_ids, delay=10):
-    """മെസ്സേജുകൾ നിശ്ചിത സമയത്തിന് ശേഷം ഡിലീറ്റ് ചെയ്യുന്ന ഫംഗ്ഷൻ"""
+    """മെസ്സേജുകൾ നിശ്ചിത സമയത്തിന് ശേഷം ഡിലീറ്റ് ചെയ്യുന്നു"""
     await asyncio.sleep(delay)
     try:
         await client.delete_messages(chat_id=chat_id, message_ids=message_ids)
@@ -85,10 +85,46 @@ async def give_filter(client, message):
     if AUTH_CHANNEL and not await is_subscribed(client, message):
         return
 
+    # ഗ്രൂപ്പിലെ അനാവശ്യ സ്പാം പരസ്യങ്ങൾ തടയുന്നു
+    if is_group:
+        spam_words = ["xxx", "18+", "playnow", "oiled", "massage", "moaning", "homemade", "sweet dreams", "audition"]
+        if any(w in text.lower() for w in spam_words) or (message.forward_date and userid not in ADMINS):
+            try:
+                await message.delete()
+                return
+            except Exception:
+                pass
+
     files, offset, total_results = await get_search_results(text, max_results=10)
 
-    # 1. Cinema kittiyillengil (10 second-il delete aakunnu)
+    # 1. സിനിമ കൃത്യമായി കിട്ടിയില്ലെങ്കിൽ (SPELL CHECK / SUGGESTIONS)
     if not files:
+        # സ്പെല്ലിംഗ് തെറ്റാണെങ്കിൽ ഗൂഗിളിൽ നിന്നോ ഡാറ്റാബേസിൽ നിന്നോ സമാന പേരുകൾ തിരയുന്നു
+        suggestions = []
+        try:
+            suggestions = await search_gagala(text)
+        except Exception:
+            pass
+
+        if suggestions:
+            btn = []
+            for mov in suggestions[:6]:  # മികച്ച 6 സജഷനുകൾ ബട്ടണുകളാക്കുന്നു
+                btn.append([InlineKeyboardButton(text=f"🎬 {mov}", callback_data=f"spolling#{mov}")])
+
+            suggest_msg = await message.reply_text(
+                f"👋 ഹലോ {user_mention},\n\n"
+                f"❓ നിങ്ങൾ ഉദ്ദേശിച്ചത് താഴെ പറയുന്നവയിൽ ഏതെങ്കിലും ആണോ?\n"
+                f"<i>(ശരിയായതിൽ ക്ലിക്ക് ചെയ്യുക):</i>",
+                reply_markup=InlineKeyboardMarkup(btn),
+                parse_mode=enums.ParseMode.HTML
+            )
+            if is_group:
+                # 45 സെക്കൻഡിനുള്ളിൽ സജഷൻ മെസ്സേജ് ഡിലീറ്റ് ആകും
+                asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, suggest_msg.id], delay=45))
+            message.stop_propagation()
+            return
+
+        # സജഷനും കിട്ടിയില്ലെങ്കിൽ മാത്രം നോട്ട് ഫൗണ്ട് കാണിക്കുന്നു
         log_txt = (
             f"❌ <b>#MovieNotFound</b>\n\n"
             f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -113,7 +149,7 @@ async def give_filter(client, message):
         message.stop_propagation()
         return
 
-    # 2. Cinema kittiyaal
+    # 2. സിനിമ കണ്ടെത്തിയാൽ ഫയലുകൾ കാണിക്കുന്നു
     log_txt = (
         f"🎬 <b>#FileSentToPM</b>\n\n"
         f"👥 <b>Requested In:</b> <b>{chat_title}</b>\n"
@@ -147,6 +183,13 @@ async def give_filter(client, message):
         btn_caption = f"🎬 [{tag_str}] {cleaned_name}"
         btn.append([InlineKeyboardButton(btn_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
 
+    if offset != "":
+        total_pages = (total_results + 9) // 10
+        btn.append([
+            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages"),
+            InlineKeyboardButton("Next ⏩", callback_data=f"next_{text}_{offset}")
+        ])
+
     result_msg = await message.reply_text(
         f"<b>Here is the result for:</b> <code>{text}</code>",
         reply_markup=InlineKeyboardMarkup(btn),
@@ -159,7 +202,6 @@ async def give_filter(client, message):
             "user_msg_id": message.id,
             "bot_msg_id": result_msg.id
         }
-        # 120 സെക്കൻഡ് (2 മിനിറ്റ്) കഴിയുമ്പോൾ യൂസറുടെ ചോദ്യവും ബട്ടൺ ലിസ്റ്റും തനിയെ ഡിലീറ്റ് ആകുന്നു
         asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, result_msg.id], delay=120))
 
     message.stop_propagation()
