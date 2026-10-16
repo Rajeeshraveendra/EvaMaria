@@ -39,6 +39,7 @@ LOGO_PATH = "assets/rrk_logo.png"
 
 UPDATES_CHANNEL_LINK = "https://t.me/RRK_Movies"
 SUPPORT_GROUP_LINK = "https://t.me/RRK_Movies_Group"
+ADMIN_LINK = "https://t.me/RajeeshRaveendra"
 
 POST_CACHE = {}
 LOCK = asyncio.Lock()
@@ -293,7 +294,7 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
                 InlineKeyboardButton("🔍 Click to Search Files", url=start_link)
             ],
             [
-                InlineKeyboardButton("📢 Updates", url=UPDATES_CHANNEL_LINK),
+                InlineKeyboardButton("👤 Admin", url=ADMIN_LINK),
                 InlineKeyboardButton("👥 Group", url=SUPPORT_GROUP_LINK)
             ]
         ]
