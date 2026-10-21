@@ -9,7 +9,6 @@ RUN mkdir /EvaMaria
 WORKDIR /EvaMaria
 
 COPY . /EvaMaria
-RUN chmod +x /EvaMaria/start.sh
+RUN chmod +x /EvaMaria/start.sh /EvaMaria/serve_and_bot.sh
 
-CMD ["/bin/bash", "/EvaMaria/start.sh"]
-
+CMD ["/bin/bash", "/EvaMaria/serve_and_bot.sh"]
