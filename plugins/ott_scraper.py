@@ -6,13 +6,15 @@ from datetime import datetime, timezone, timedelta
 import requests
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from info import ADMINS
 
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
 GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 GROUP_NAME = "RRK Movies Group"
 
 HISTORY_FILE = "posted_ott_movies.txt"
-TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
+OTT_CHAT_ID = int(os.environ.get("OTT_CHAT_ID", str(UPDATE_CHANNEL)))
 
 def load_posted_ott():
     if os.path.exists(HISTORY_FILE):
@@ -95,7 +97,7 @@ def get_trailer_url(movie_id, title, lang):
 
     return trailer_url
 
-async def run_ott_scraper(client: Client, status_msg=None, force=False):
+async def run_ott_scraper(client: Client, status_msg=None, force=False, limit=None):
     if not force and is_sleep_time():
         print("[Upcoming/OTT] Sleep mode active.")
         return
@@ -111,6 +113,8 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
 
     posted = 0
     for item in movies:
+        if limit and posted >= limit:
+            break
         clean_name = clean_movie_title(item['title'])
         if not clean_name:
             continue
@@ -149,7 +153,7 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
         try:
             if poster_url:
                 await client.send_photo(
-                    chat_id=UPDATE_CHANNEL,
+                    chat_id=OTT_CHAT_ID,
                     photo=poster_url,
                     caption=caption,
                     reply_markup=button_markup,
@@ -158,7 +162,7 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
                 )
             else:
                 await client.send_message(
-                    chat_id=UPDATE_CHANNEL,
+                    chat_id=OTT_CHAT_ID,
                     text=caption,
                     reply_markup=button_markup,
                     parse_mode=enums.ParseMode.HTML,
@@ -174,10 +178,13 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False):
     if status_msg:
         await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ മൾട്ടി ലാംഗ്വേജ് ചിത്രങ്ങൾ ചാനലിലേക്ക് അയച്ചു.")
 
-@Client.on_message(filters.command("ott") & filters.private)
+@Client.on_message(filters.command("ottnow") & filters.private & filters.user(ADMINS), group=5)
 async def manual_ott_cmd(client: Client, message):
+    if not TMDB_API_KEY:
+        return await message.reply_text("❌ TMDB_API_KEY Render-ൽ സെറ്റ് ചെയ്തിട്ടില്ല.")
     msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ തിരയുന്നു...")
-    await run_ott_scraper(client, msg, force=True)
+    limit = int(message.command[1]) if len(message.command) > 1 and message.command[1].isdigit() else None
+    await run_ott_scraper(client, msg, force=True, limit=limit)
 
 async def auto_ott_loop(client: Client):
     await asyncio.sleep(60)
@@ -188,8 +195,5 @@ async def auto_ott_loop(client: Client):
             print(f"[Loop Error]: {e}")
         await asyncio.sleep(7200)
 
-@Client.on_message(filters.command("start") & filters.private)
-async def start_ott_loop_trigger(client: Client, message):
-    if not hasattr(client, "_ott_loop_started"):
-        client._ott_loop_started = True
-        asyncio.create_task(auto_ott_loop(client))
+# Auto loop disabled for now (posted every 2h and repeated after restarts).
+# Weekly Friday schedule to be added later.
