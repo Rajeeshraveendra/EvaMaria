@@ -58,7 +58,7 @@ async def send_completion_message(client, user_id):
     buttons = [
         [
             InlineKeyboardButton("📢 Main Channel", url="https://t.me/+NoL3OkqPwBtiZjY0"),
-            InlineKeyboardButton("💬 WhatsApp Admin", url="https://wa.me/971562769519?text=Hi%20Rajeesh%20Raveendra%20Kamballur")
+            InlineKeyboardButton("💬 Admin RRK", url="https://t.me/RajeeshRaveendra")
         ],
         [
             InlineKeyboardButton("🔍 Search More Movies", url="https://t.me/RRK_Movies")
