@@ -154,6 +154,21 @@ async def get_imdb_details(movie_name, year=None):
                 if fallback_results:
                     selected = fallback_results[0]
 
+            sugg_poster = None
+            if not selected:
+                # Fallback: IMDb suggestion API (finds spelling variants OMDb search misses)
+                try:
+                    key = re.sub(r"[^a-z0-9 ]+", "", movie_name.lower()).strip().replace(" ", "_") or "x"
+                    sugg = fetch_json(f"https://v3.sg.media-imdb.com/suggestion/x/{urllib.parse.quote(key)}.json")
+                    items = [d for d in sugg.get("d", []) if str(d.get("id", "")).startswith("tt")]
+                    if year:
+                        items = sorted(items, key=lambda d: str(d.get("y")) != str(year))
+                    if items:
+                        selected = {"imdbID": items[0]["id"]}
+                        sugg_poster = (items[0].get("i") or {}).get("imageUrl")
+                except Exception as e:
+                    print(f"IMDb suggestion error: {e}")
+
             if not selected:
                 return None
 
@@ -179,7 +194,7 @@ async def get_imdb_details(movie_name, year=None):
             if poster and poster != "N/A":
                 poster = re.sub(r"\._V1_.*?\.", "._V1_.", poster)
             else:
-                poster = None
+                poster = sugg_poster
 
             return {
                 "title": title,
@@ -222,7 +237,7 @@ async def prepare_hd_poster_with_logo(url):
             temp_in.close()
 
             img = Image.open(temp_in.name).convert("RGBA")
-            
+
             if os.path.exists(LOGO_PATH):
                 logo = Image.open(LOGO_PATH).convert("RGBA")
                 logo_width = int(img.width * 0.22)
@@ -287,7 +302,7 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
     # Base64 URL-safe encoding vazhi space issue solve cheyyunnu
     encoded_str = base64.urlsafe_b64encode(search_query.encode()).decode().rstrip("=")
     start_link = f"https://t.me/{bot_username}?start=search_{encoded_str}"
-    
+
     buttons = InlineKeyboardMarkup(
         [
             [
