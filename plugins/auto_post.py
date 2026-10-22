@@ -219,7 +219,7 @@ async def get_imdb_details(movie_name, year=None):
             poster = details.get("Poster")
 
             if poster and poster != "N/A":
-                poster = re.sub(r"\._V1_.*?\.", "._V1_.", poster)
+                poster = re.sub(r"\._V1_.*?\.", "._V1_SX1000.", poster)  # 1000px, full-res RAM കൂട്ടും
             else:
                 poster = sugg_poster
 
@@ -259,28 +259,28 @@ async def prepare_hd_poster_with_logo(url):
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = resp.read()
 
-            temp_in = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-            temp_in.write(data)
-            temp_in.close()
+            from io import BytesIO
+            out_temp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            out_temp.close()
 
-            img = Image.open(temp_in.name).convert("RGBA")
+            with Image.open(BytesIO(data)) as src:
+                src.draft("RGB", (1000, 1500))      # വലിയ JPEG RAM-ൽ ചെറുതായി തുറക്കും
+                img = src.convert("RGB")
+            del data
+            img.thumbnail((1000, 1500), Image.Resampling.LANCZOS)
 
             if os.path.exists(LOGO_PATH):
-                logo = Image.open(LOGO_PATH).convert("RGBA")
+                with Image.open(LOGO_PATH) as lg:
+                    logo = lg.convert("RGBA")
                 logo_width = int(img.width * 0.22)
                 logo_height = int(logo.height * (logo_width / logo.width))
                 logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
                 img.paste(logo, (int(img.width * 0.04), int(img.height * 0.03)), logo)
+                logo.close()
 
-            out_temp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-            out_temp.close()
-            img.convert("RGB").save(out_temp.name, "JPEG", quality=98, optimize=True)
-
-            try:
-                os.remove(temp_in.name)
-            except Exception:
-                pass
-
+            img.save(out_temp.name, "JPEG", quality=92, optimize=True)
+            img.close()
+            import gc; gc.collect()
             return out_temp.name
         except Exception as e:
             print(f"Logo processing error: {e}")
