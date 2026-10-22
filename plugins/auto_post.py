@@ -16,7 +16,7 @@ from pyrogram.types import (
 )
 
 from info import CHANNELS, PICS
-from database.ia_filterdb import save_file
+from database.ia_filterdb import save_file, db
 from utils import temp
 
 # ============================================================
@@ -43,6 +43,33 @@ ADMIN_LINK = "https://t.me/RajeeshRaveendra"
 
 POST_CACHE = {}
 LOCK = asyncio.Lock()
+POSTED_DB = db["auto_posted"]  # posted movies stay remembered across restarts
+
+
+def norm_key(text):
+    return re.sub(r"[^a-z0-9]+", "", str(text).lower())
+
+
+async def already_posted(*keys):
+    keys = [k for k in keys if k]
+    for k in keys:
+        if k in POST_CACHE:
+            return True
+    try:
+        if keys and await POSTED_DB.find_one({"_id": {"$in": keys}}):
+            return True
+    except Exception as e:
+        print(f"Posted-check DB error: {e}")
+    return False
+
+
+async def mark_posted(msg_id, *keys):
+    for k in [k for k in keys if k]:
+        POST_CACHE[k] = msg_id
+        try:
+            await POSTED_DB.update_one({"_id": k}, {"$set": {"msg_id": msg_id}}, upsert=True)
+        except Exception as e:
+            print(f"Posted-save DB error: {e}")
 
 
 # ============================================================
@@ -342,13 +369,18 @@ async def auto_post_to_group(client, message):
 
     file_name = getattr(media, "file_name", "New Movie")
     base_title, year = extract_movie_info(file_name)
-    cache_key = f"{base_title.lower()}_{year}" if year else base_title.lower()
+    title_key = "t_" + norm_key(base_title) if norm_key(base_title) not in ("", "movie") else None
 
     async with LOCK:
-        if cache_key in POST_CACHE:
+        # Same movie, different quality files -> post only once
+        if await already_posted(title_key):
             return
 
         imdb_info = await get_imdb_details(base_title, year)
+        imdb_key = imdb_info.get("imdb_id") if imdb_info else None
+        if imdb_key and await already_posted(imdb_key):
+            await mark_posted(None, title_key)
+            return
         caption, buttons = get_caption_and_buttons(base_title, imdb_info)
 
         raw_poster_url = imdb_info.get("poster") if imdb_info else None
@@ -397,7 +429,7 @@ async def auto_post_to_group(client, message):
                 print(f"Text send error: {e}")
                 return
 
-        POST_CACHE[cache_key] = sent_msg.id
+        await mark_posted(sent_msg.id, title_key, imdb_key)
 
         if processed_poster and os.path.exists(processed_poster):
             try:
