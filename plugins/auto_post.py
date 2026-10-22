@@ -137,6 +137,20 @@ def fetch_json(url):
         return json.loads(response.read().decode("utf-8"))
 
 
+def imdb_poster_by_id(imdb_id):
+    """OMDb poster dead aanenkil IMDb-il ninnu puthiya poster edukkum"""
+    try:
+        d = fetch_json(f"https://v3.sg.media-imdb.com/suggestion/t/{urllib.parse.quote(imdb_id)}.json")
+        for it in d.get("d", []):
+            if it.get("id") == imdb_id:
+                url = (it.get("i") or {}).get("imageUrl")
+                if url:
+                    return re.sub(r"\._V1_.*?\.", "._V1_SX1000.", url)
+    except Exception as e:
+        print(f"IMDb poster lookup error: {e}")
+    return None
+
+
 # ============================================================
 # OMDb DETAILS
 # ============================================================
@@ -232,6 +246,7 @@ async def get_imdb_details(movie_name, year=None):
                 "rating": rating,
                 "genres": genres,
                 "poster": poster,
+                "poster_alt": imdb_poster_by_id(imdb_id),
                 "imdb_id": imdb_id,
                 "url": f"https://www.imdb.com/title/{imdb_id}"
             }
@@ -383,13 +398,22 @@ async def auto_post_to_group(client, message):
             return
         caption, buttons = get_caption_and_buttons(base_title, imdb_info)
 
-        raw_poster_url = imdb_info.get("poster") if imdb_info else None
-        if not raw_poster_url and PICS:
-            raw_poster_url = random.choice(PICS)
+        candidates = []
+        if imdb_info:
+            candidates += [imdb_info.get("poster"), imdb_info.get("poster_alt")]
+        if PICS:
+            candidates.append(random.choice(PICS))
+        candidates = [c for i, c in enumerate(candidates) if c and c not in candidates[:i]]
 
+        raw_poster_url = None
         processed_poster = None
-        if raw_poster_url:
-            processed_poster = await prepare_hd_poster_with_logo(raw_poster_url)
+        for cand in candidates:
+            processed_poster = await prepare_hd_poster_with_logo(cand)
+            if processed_poster:
+                raw_poster_url = cand
+                break
+        if not raw_poster_url and candidates:
+            raw_poster_url = candidates[-1]
 
         sent_msg = None
         if processed_poster:
