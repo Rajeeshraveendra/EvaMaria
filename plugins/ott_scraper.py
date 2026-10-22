@@ -178,13 +178,14 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False, limit=No
     if status_msg:
         await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ മൾട്ടി ലാംഗ്വേജ് ചിത്രങ്ങൾ ചാനലിലേക്ക് അയച്ചു.")
 
-@Client.on_message(filters.command("ottnow") & filters.private & filters.user(ADMINS), group=5)
+@Client.on_message(filters.command("ottnow") & filters.private & filters.user(ADMINS), group=-1)
 async def manual_ott_cmd(client: Client, message):
     if not TMDB_API_KEY:
         return await message.reply_text("❌ TMDB_API_KEY Render-ൽ സെറ്റ് ചെയ്തിട്ടില്ല.")
     msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ തിരയുന്നു...")
     limit = int(message.command[1]) if len(message.command) > 1 and message.command[1].isdigit() else None
     await run_ott_scraper(client, msg, force=True, limit=limit)
+    message.stop_propagation()
 
 async def auto_ott_loop(client: Client):
     await asyncio.sleep(60)
