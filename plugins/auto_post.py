@@ -360,7 +360,7 @@ async def prepare_hd_poster_with_logo(url):
             if os.path.exists(LOGO_PATH):
                 with Image.open(LOGO_PATH) as lg:
                     logo = lg.convert("RGBA")
-                logo_width = int(img.width * 0.22)
+                logo_width = int(img.width * 0.14)  # logo size (cheruthakkan 0.12)
                 logo_height = int(logo.height * (logo_width / logo.width))
                 logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
                 img.paste(logo, (int(img.width * 0.04), int(img.height * 0.03)), logo)
