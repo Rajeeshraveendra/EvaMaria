@@ -35,6 +35,13 @@ OMDB_API_KEY = os.environ.get(
     "97960898"
 )
 
+TMDB_API_KEY = (os.environ.get("TMDB_API_KEY") or "").strip()
+
+LANG_NAMES = {
+    "ml": "Malayalam", "ta": "Tamil", "te": "Telugu", "hi": "Hindi", "kn": "Kannada",
+    "en": "English", "bn": "Bengali", "mr": "Marathi", "ko": "Korean", "ja": "Japanese",
+}
+
 LOGO_PATH = "assets/rrk_logo.png"
 
 UPDATES_CHANNEL_LINK = "https://t.me/RRK_Movies"
@@ -151,6 +158,67 @@ def imdb_poster_by_id(imdb_id):
     return None
 
 
+def fallback_details(movie_name, year=None, imdb_id=None, sugg=None):
+    """OMDb-il illatha puthiya movies: TMDB / IMDb suggestion vazhi details"""
+    info = None
+    if TMDB_API_KEY:
+        try:
+            base = "https://api.themoviedb.org/3"
+            key = urllib.parse.quote(TMDB_API_KEY)
+            tmdb_id = None
+            if imdb_id:
+                f = fetch_json(f"{base}/find/{imdb_id}?api_key={key}&external_source=imdb_id")
+                res = f.get("movie_results") or []
+                if res:
+                    tmdb_id = res[0].get("id")
+            if not tmdb_id:
+                q = f"{base}/search/movie?api_key={key}&query={urllib.parse.quote(movie_name)}"
+                if year:
+                    q += f"&year={year}"
+                res = fetch_json(q).get("results") or []
+                if res:
+                    tmdb_id = res[0].get("id")
+            if tmdb_id:
+                m = fetch_json(f"{base}/movie/{tmdb_id}?api_key={key}&append_to_response=external_ids")
+                imdb_id = imdb_id or (m.get("external_ids") or {}).get("imdb_id")
+                rt = m.get("runtime")
+                va = m.get("vote_average")
+                poster = f"https://image.tmdb.org/t/p/w780{m['poster_path']}" if m.get("poster_path") else None
+                info = {
+                    "title": m.get("title") or movie_name,
+                    "year": (m.get("release_date") or "")[:4] or (year or ""),
+                    "type": "Movie",
+                    "runtime": f"{rt} min" if rt else "N/A",
+                    "language": LANG_NAMES.get(m.get("original_language"), m.get("original_language") or "N/A"),
+                    "rating": f"{va:.1f}" if va else "N/A",
+                    "genres": ", ".join(g["name"] for g in m.get("genres", [])) or "N/A",
+                    "poster": poster,
+                    "imdb_id": imdb_id,
+                    "url": f"https://www.imdb.com/title/{imdb_id}" if imdb_id else f"https://www.themoviedb.org/movie/{tmdb_id}",
+                }
+        except Exception as e:
+            print(f"TMDB fallback error: {e}")
+
+    if not info and sugg:
+        img = (sugg.get("i") or {}).get("imageUrl")
+        info = {
+            "title": sugg.get("l") or movie_name,
+            "year": str(sugg.get("y") or year or ""),
+            "type": "Movie",
+            "runtime": "N/A",
+            "language": "N/A",
+            "rating": "N/A",
+            "genres": "N/A",
+            "poster": re.sub(r"\._V1_.*?\.", "._V1_SX1000.", img) if img else None,
+            "imdb_id": sugg.get("id"),
+            "url": f"https://www.imdb.com/title/{sugg.get('id')}",
+        }
+
+    if info and info.get("imdb_id"):
+        info["poster_alt"] = imdb_poster_by_id(info["imdb_id"])
+    return info
+
+
 # ============================================================
 # OMDb DETAILS
 # ============================================================
@@ -196,6 +264,7 @@ async def get_imdb_details(movie_name, year=None):
                     selected = fallback_results[0]
 
             sugg_poster = None
+            sugg_item = None
             if not selected:
                 # Fallback: IMDb suggestion API (finds spelling variants OMDb search misses)
                 try:
@@ -206,22 +275,23 @@ async def get_imdb_details(movie_name, year=None):
                         items = sorted(items, key=lambda d: str(d.get("y")) != str(year))
                     if items:
                         selected = {"imdbID": items[0]["id"]}
+                        sugg_item = items[0]
                         sugg_poster = (items[0].get("i") or {}).get("imageUrl")
                 except Exception as e:
                     print(f"IMDb suggestion error: {e}")
 
             if not selected:
-                return None
+                return fallback_details(movie_name, year)
 
             imdb_id = selected.get("imdbID")
             if not imdb_id:
-                return None
+                return fallback_details(movie_name, year)
 
             detail_url = f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&i={urllib.parse.quote(imdb_id)}&plot=full"
             details = fetch_json(detail_url)
 
             if details.get("Response") != "True":
-                return None
+                return fallback_details(movie_name, year, imdb_id, sugg_item)
 
             title = details.get("Title", movie_name)
             movie_year = details.get("Year", year or "")
@@ -253,7 +323,10 @@ async def get_imdb_details(movie_name, year=None):
 
         except Exception as e:
             print(f"IMDb/OMDb Error: {e}")
-            return None
+            try:
+                return fallback_details(movie_name, year)
+            except Exception:
+                return None
 
     return await loop.run_in_executor(None, fetch)
 
