@@ -3,18 +3,26 @@ import os
 import re
 import urllib.parse
 from datetime import datetime, timezone, timedelta
+import logging
 import requests
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from info import ADMINS
 
-UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1003799495012"))
+def _int_env(name, default):
+    try:
+        return int(str(os.environ.get(name) or default).strip())
+    except Exception:
+        logging.error(f"[OTT] Invalid {name} value, using default")
+        return int(default)
+
+UPDATE_CHANNEL = _int_env("UPDATE_CHANNEL", "-1001452215783")
 GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 GROUP_NAME = "RRK Movies Group"
 
 HISTORY_FILE = "posted_ott_movies.txt"
-TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
-OTT_CHAT_ID = int(os.environ.get("OTT_CHAT_ID", str(UPDATE_CHANNEL)))
+TMDB_API_KEY = (os.environ.get("TMDB_API_KEY") or "").strip()
+OTT_CHAT_ID = _int_env("OTT_CHAT_ID", str(UPDATE_CHANNEL))
 
 def load_posted_ott():
     if os.path.exists(HISTORY_FILE):
@@ -173,19 +181,45 @@ async def run_ott_scraper(client: Client, status_msg=None, force=False, limit=No
             posted_set.add(clean_name.lower())
             await asyncio.sleep(4)
         except Exception as err:
-            print(f"[Send Error]: {err}")
+            logging.error(f"[OTT Send Error]: {err}")
+            if status_msg:
+                try:
+                    await status_msg.edit_text(f"❌ Group-ലേക്ക് അയക്കാൻ പറ്റിയില്ല: {str(err)[:300]}")
+                except Exception:
+                    pass
+                return
 
     if status_msg:
         await status_msg.edit_text(f"✅ പൂർത്തിയായി! {posted} പുതിയ മൾട്ടി ലാംഗ്വേജ് ചിത്രങ്ങൾ ചാനലിലേക്ക് അയച്ചു.")
 
-@Client.on_message(filters.command("ottnow") & filters.private & filters.user(ADMINS), group=-1)
+@Client.on_message(filters.command(["ottnow", "ottping"]), group=-1)
 async def manual_ott_cmd(client: Client, message):
-    if not TMDB_API_KEY:
-        return await message.reply_text("❌ TMDB_API_KEY Render-ൽ സെറ്റ് ചെയ്തിട്ടില്ല.")
-    msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ തിരയുന്നു...")
-    limit = int(message.command[1]) if len(message.command) > 1 and message.command[1].isdigit() else None
-    await run_ott_scraper(client, msg, force=True, limit=limit)
-    message.stop_propagation()
+    try:
+        uid = message.from_user.id if message.from_user else 0
+        admin_ids = {str(a).lstrip("@").lower() for a in ADMINS}
+        uname = (message.from_user.username or "").lower() if message.from_user else ""
+        if str(uid) not in admin_ids and uname not in admin_ids:
+            await message.reply_text(f"⛔ Admin മാത്രം. നിങ്ങളുടെ ID: {uid}")
+            return
+        if message.command[0].lower() == "ottping":
+            await message.reply_text(
+                f"✅ OTT plugin ലോഡ് ആയി.\nTMDB key: {'ഉണ്ട്' if TMDB_API_KEY else 'ഇല്ല'}\nPost chat: {OTT_CHAT_ID}"
+            )
+            return
+        if not TMDB_API_KEY:
+            await message.reply_text("❌ TMDB_API_KEY Render-ൽ സെറ്റ് ചെയ്തിട്ടില്ല.")
+            return
+        msg = await message.reply_text("🔍 പുതിയ മൾട്ടി ലാംഗ്വേജ് സിനിമകൾ തിരയുന്നു...")
+        limit = int(message.command[1]) if len(message.command) > 1 and message.command[1].isdigit() else None
+        await run_ott_scraper(client, msg, force=True, limit=limit)
+    except Exception as e:
+        logging.exception("[OTT] /ottnow failed")
+        try:
+            await message.reply_text(f"❌ OTT Error: {type(e).__name__}: {str(e)[:300]}")
+        except Exception:
+            pass
+    finally:
+        message.stop_propagation()
 
 async def auto_ott_loop(client: Client):
     await asyncio.sleep(60)
@@ -198,3 +232,6 @@ async def auto_ott_loop(client: Client):
 
 # Auto loop disabled for now (posted every 2h and repeated after restarts).
 # Weekly Friday schedule to be added later.
+
+
+logging.info(f"[OTT] ott_scraper plugin loaded. TMDB key set: {bool(TMDB_API_KEY)}")
