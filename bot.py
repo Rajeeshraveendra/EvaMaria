@@ -15,6 +15,10 @@ from info import SESSION, API_ID, API_HASH, BOT_TOKEN, LOG_STR
 from utils import temp
 from typing import Union, Optional, AsyncGenerator
 from pyrogram import types
+import pyrogram.utils
+
+# Allow new channel IDs like -1003xxxxxxxxxx (fixes 'Peer id invalid', incl. LOG_CHANNEL)
+pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 
 class Bot(Client):
 
