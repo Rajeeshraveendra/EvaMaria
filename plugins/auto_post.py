@@ -223,7 +223,20 @@ def fallback_details(movie_name, year=None, imdb_id=None, sugg=None):
 # OMDb DETAILS
 # ============================================================
 
-async def get_imdb_details(movie_name, year=None):
+INDIAN_LANGS = {"malayalam", "tamil", "telugu", "hindi", "kannada", "bengali", "marathi"}
+
+
+def lang_hint_from_name(name):
+    n = str(name or "").lower()
+    for lang, keys in (("malayalam", ("malayalam", ".mal.", " mal ")), ("tamil", ("tamil", ".tam.", " tam ")),
+                       ("telugu", ("telugu", ".tel.", " tel ")), ("hindi", ("hindi", ".hin.", " hin ")),
+                       ("kannada", ("kannada", ".kan.", " kan "))):
+        if any(k in n for k in keys):
+            return lang
+    return None
+
+
+async def get_imdb_details(movie_name, year=None, lang_hint=None):
     loop = asyncio.get_event_loop()
 
     def fetch():
@@ -238,14 +251,40 @@ async def get_imdb_details(movie_name, year=None):
             selected = None
 
             wanted = re.sub(r"[^a-z0-9]+", "", movie_name.lower())
+            exact = []
             for item in results:
                 item_title = item.get("Title", "")
                 normalized = re.sub(r"[^a-z0-9]+", "", item_title.lower())
                 item_year = str(item.get("Year", ""))
 
                 if normalized == wanted and (not year or item_year.startswith(str(year))):
-                    selected = item
-                    break
+                    exact.append(item)
+
+            if len(exact) == 1:
+                selected = exact[0]
+            elif len(exact) > 1:
+                # ഒരേ പേരിൽ പല സിനിമകൾ: ഇന്ത്യൻ / ശരിയായ എൻട്രി തിരഞ്ഞെടുക്കുന്നു
+                best_score = -1
+                for item in exact[:4]:
+                    try:
+                        d = fetch_json(f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&i={urllib.parse.quote(item.get('imdbID', ''))}")
+                    except Exception:
+                        d = {}
+                    score = 0
+                    langs = [x.strip().lower() for x in str(d.get("Language", "")).split(",")]
+                    countries = [x.strip().lower() for x in str(d.get("Country", "")).split(",")]
+                    if langs and langs[0] in INDIAN_LANGS:
+                        score += 3
+                    if lang_hint and lang_hint.lower() in langs:
+                        score += 3
+                    if countries == ["india"]:
+                        score += 2
+                    if d.get("Director") not in (None, "", "N/A"):
+                        score += 1
+                    if d.get("imdbVotes") not in (None, "", "N/A"):
+                        score += 1
+                    if score > best_score:
+                        best_score, selected = score, item
 
             if not selected and year:
                 for item in results:
@@ -464,7 +503,7 @@ async def auto_post_to_group(client, message):
         if await already_posted(title_key):
             return
 
-        imdb_info = await get_imdb_details(base_title, year)
+        imdb_info = await get_imdb_details(base_title, year, lang_hint_from_name(file_name))
         imdb_key = imdb_info.get("imdb_id") if imdb_info else None
         if imdb_key and await already_posted(imdb_key):
             await mark_posted(None, title_key)
