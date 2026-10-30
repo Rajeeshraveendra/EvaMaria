@@ -190,15 +190,22 @@ async def start(client, message):
         except Exception:
             search_query = raw_token.replace("_", " ").strip()
 
-        files, offset, total_results = await get_search_results(search_query, max_results=10)
-
-        # സിനിമ കിട്ടിയില്ലെങ്കിൽ വർഷം ഒഴിവാക്കി പേര് മാത്രം വച്ച് തിരയുന്നു
-        if not files:
-            alt_query = re.sub(r"\b(19\d{2}|20\d{2})\b", "", search_query).strip()
-            if alt_query != search_query:
-                files, offset, total_results = await get_search_results(alt_query, max_results=10)
-                if files:
-                    search_query = alt_query
+        # പല രീതിയിൽ തിരയുന്നു: & -> and, വർഷം ഒഴിവാക്കി, ചിഹ്നങ്ങൾ ഒഴിവാക്കി, ആദ്യ വാക്ക് മാത്രം
+        q0 = re.sub(r"\s+", " ", search_query).strip()
+        no_year = re.sub(r"\b(19\d{2}|20\d{2})\b", "", q0).strip()
+        tries = []
+        for q in [q0, q0.replace("&", "and"), no_year, no_year.replace("&", "and"),
+                  re.sub(r"[^\w\s]", " ", no_year), (re.sub(r"[^\w\s]", " ", no_year).split() or [""])[0]]:
+            q = re.sub(r"\s+", " ", q).strip()
+            if len(q) >= 3 and q not in tries:
+                tries.append(q)
+        files = []
+        for q in tries:
+            res = await get_search_results(re.escape(q).replace("\\ ", " "), max_results=10)
+            if res and res[0]:
+                files, offset, total_results = res
+                search_query = q
+                break
 
         if not files:
             return await message.reply_text(
