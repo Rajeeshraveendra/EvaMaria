@@ -362,10 +362,10 @@ async def spelling_click_handler(client, query: CallbackQuery):
             f"⚠️ '{movie_name}' നിലവിൽ ലഭ്യമല്ല!\n"
             f"Movie not available!\n\n"
             f"✅ റിക്വസ്റ്റ് അഡ്മിന് അയച്ചിട്ടുണ്ട്. ഉടൻ ചേർക്കാം!\n"
-            f"Request sent to admin. Will be uploaded soon!\n\n"
-            f"🔔 അപ്‌ലോഡ് ആകുമ്പോൾ ബോട്ട് PM-ൽ അറിയിക്കും (ബോട്ട് Start ചെയ്തിരിക്കണം)."
+            f"Request sent to admin!\n\n"
+            f"🔔 അപ്‌ലോഡ് ആകുമ്പോൾ PM-ൽ അറിയിക്കും."
         )
-        await query.answer(alert_msg, show_alert=True)
+        await query.answer(alert_msg[:200], show_alert=True)
 
         # Chat-ile message request confirmation aayi edit cheyyunnu (Malayalam + English)
         req_confirm_text = (
@@ -512,9 +512,8 @@ async def movie_request_click(client, query: CallbackQuery):
             f"👥 <b>From Chat:</b> <b>{chat_title}</b>"
         ))
     await query.answer(
-        f"✅ '{movie_name}' റിക്വസ്റ്റ് ചെയ്തു!\n"
-        f"Request saved!\n\n"
-        f"🔔 അപ്‌ലോഡ് ആകുമ്പോൾ ബോട്ട് PM-ൽ അറിയിക്കും (ബോട്ട് Start ചെയ്തിരിക്കണം).",
+        (f"✅ '{movie_name[:40]}' റിക്വസ്റ്റ് ചെയ്തു! / Request saved!\n\n"
+         f"🔔 അപ്‌ലോഡ് ആകുമ്പോൾ PM-ൽ അറിയിക്കും (ബോട്ട് Start ചെയ്തിരിക്കണം).")[:200],
         show_alert=True
     )
 
@@ -571,6 +570,7 @@ async def filter_select(client, query: CallbackQuery):
     try:
         await query.message.edit_text(head, reply_markup=InlineKeyboardMarkup(btn),
                                       parse_mode=enums.ParseMode.HTML)
+        await query.answer(f"✅ {label or 'All'}: {total_results} files")
     except Exception as e:
         logger.error(f"Filter select error: {e}")
-    await query.answer()
+        await query.answer(f"✅ {label or 'All'}: {total_results} files")
