@@ -362,8 +362,13 @@ async def spelling_click_handler(client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^next_"))
 async def next_page_handler(client, query: CallbackQuery):
     try:
-        _, text, offset, curr_page = query.data.split("_", 3)
-        curr_page = int(curr_page)
+        payload = query.data[5:]
+        parts = payload.rsplit("_", 2)
+        if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+            text, offset, curr_page = parts[0], int(parts[1]), int(parts[2])
+        else:
+            text, offset = payload.rsplit("_", 1)
+            offset, curr_page = int(offset), 1
     except Exception:
         return await query.answer("കൂടുതൽ ഫയലുകളില്ല / No more results!", show_alert=True)
 
