@@ -225,7 +225,10 @@ async def start(client, message):
             btn.append([InlineKeyboardButton(btn_title, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
 
         if offset != "":
-            btn.append([InlineKeyboardButton("Next >>", callback_data=f"next_{search_query}_{offset}")])
+            cb_q = search_query
+            while len(f"next_{cb_q}_{offset}_1".encode()) > 64:
+                cb_q = cb_q[:-1]
+            btn.append([InlineKeyboardButton("Next >>", callback_data=f"next_{cb_q}_{offset}_1")])
 
         res_text = (
             f"<b>Search Query:</b> <code>{search_query}</code>\n"
