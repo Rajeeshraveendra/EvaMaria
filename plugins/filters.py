@@ -11,6 +11,7 @@ from database.ia_filterdb import get_search_results, get_file_details
 from database.connections_mdb import active_connection
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
+from plugins.requests_notify import add_request
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,68 @@ def get_quality_tag(name):
         return 'HDRip'
     return ""
 
+
+# ============================================================
+# LANGUAGE / QUALITY FILTER HELPERS
+# ============================================================
+LANG_FILTERS = {
+    "ml": ("Malayalam", r"(malayalam|mal)\b"),
+    "ta": ("Tamil", r"(tamil|tam)\b"),
+    "te": ("Telugu", r"(telugu|tel)\b"),
+    "hi": ("Hindi", r"(hindi|hin)\b"),
+    "kn": ("Kannada", r"(kannada|kan)\b"),
+    "en": ("English", r"(english|eng)\b"),
+}
+QUAL_FILTERS = {
+    "480": ("480p", r"480p"),
+    "720": ("720p", r"720p"),
+    "1080": ("1080p", r"1080p"),
+    "4k": ("4K", r"(2160p|4k)"),
+}
+
+
+def cbd(prefix, text, suffix=""):
+    """Telegram callback_data 64 bytes-ൽ കൂടാതെ നോക്കുന്നു"""
+    text = str(text)
+    while text and len(f"{prefix}{text}{suffix}".encode()) > 64:
+        text = text[:-1]
+    return f"{prefix}{text}{suffix}"
+
+
+def build_file_buttons(files):
+    btn = []
+    for file in files:
+        raw_name = file.file_name
+        size = get_size(file.file_size)
+        audio = get_audio_tag(raw_name)
+        quality = get_quality_tag(raw_name)
+
+        cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
+        cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
+        cleaned_name = re.sub(' +', ' ', cleaned_name)
+
+        tag_parts = [size]
+        if audio:
+            tag_parts.append(audio)
+        if quality:
+            tag_parts.append(quality)
+        tag_str = " | ".join(tag_parts)
+
+        if len(cleaned_name) > 20:
+            cleaned_name = cleaned_name[:18] + ".."
+
+        btn.append([InlineKeyboardButton(f"🎬 [{tag_str}] {cleaned_name}",
+                                         url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+    return btn
+
+
+def filter_row(text):
+    return [
+        InlineKeyboardButton("🌐 Language", callback_data=cbd("flang#", text)),
+        InlineKeyboardButton("🎞 Quality", callback_data=cbd("fqual#", text)),
+    ]
+
+
 async def send_log_safe(client, log_txt):
     if not LOG_CHANNEL:
         return
@@ -185,7 +248,10 @@ async def give_filter(client, message):
         )
         await send_log_safe(client, log_txt)
 
-        btn = [[InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={urllib.parse.quote(text)}+movie")]]
+        btn = [
+            [InlineKeyboardButton("📥 Request ചെയ്യുക / Request", callback_data=cbd("mreq#", text))],
+            [InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={urllib.parse.quote(text)}+movie")],
+        ]
         err_text = (
             f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല / Movie Not Found!</b>\n\n"
             f"👋 <b>ഹലോ / Hello {user_mention},</b>\n"
@@ -200,7 +266,7 @@ async def give_filter(client, message):
         )
         
         if is_group:
-            asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, err_msg.id], delay=15))
+            asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, err_msg.id], delay=60))
         
         message.stop_propagation()
         return
@@ -243,8 +309,10 @@ async def give_filter(client, message):
         total_pages = (total_results + 9) // 10
         btn.append([
             InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages_info"),
-            InlineKeyboardButton("Next ⏩", callback_data=f"next_{text}_{offset}_1")
+            InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", text, f"_{offset}_1"))
         ])
+    if total_results > 1:
+        btn.append(filter_row(text))
 
     result_msg = await message.reply_text(
         f"<b>Here is the result for:</b> <code>{text}</code>",
@@ -287,13 +355,15 @@ async def spelling_click_handler(client, query: CallbackQuery):
             f"⚡ <i>Dhayavayi ee movie database-il upload cheyyuka!</i>"
         )
         await send_log_safe(client, req_log)
+        await add_request(user_id, movie_name)
 
         # Popup Alert-ൽ മലയാളവും ഇംഗ്ലീഷും ഒന്നിച്ച് നൽകുന്നു
         alert_msg = (
             f"⚠️ '{movie_name}' നിലവിൽ ലഭ്യമല്ല!\n"
             f"Movie not available!\n\n"
             f"✅ റിക്വസ്റ്റ് അഡ്മിന് അയച്ചിട്ടുണ്ട്. ഉടൻ ചേർക്കാം!\n"
-            f"Request sent to admin. Will be uploaded soon!"
+            f"Request sent to admin. Will be uploaded soon!\n\n"
+            f"🔔 അപ്‌ലോഡ് ആകുമ്പോൾ ബോട്ട് PM-ൽ അറിയിക്കും (ബോട്ട് Start ചെയ്തിരിക്കണം)."
         )
         await query.answer(alert_msg, show_alert=True)
 
@@ -405,11 +475,11 @@ async def next_page_handler(client, query: CallbackQuery):
 
     page_btns = []
     prev_offset = max(0, int(offset) - 10)
-    page_btns.append(InlineKeyboardButton("⏪ Back", callback_data=f"next_{text}_{prev_offset}_{new_page - 2}"))
+    page_btns.append(InlineKeyboardButton("⏪ Back", callback_data=cbd("next_", text, f"_{prev_offset}_{new_page - 2}")))
     page_btns.append(InlineKeyboardButton(f"{new_page}/{total_pages} Pages", callback_data="pages_info"))
 
     if next_offset != "":
-        page_btns.append(InlineKeyboardButton("Next ⏩", callback_data=f"next_{text}_{next_offset}_{new_page}"))
+        page_btns.append(InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", text, f"_{next_offset}_{new_page}")))
 
     btn.append(page_btns)
 
@@ -423,3 +493,84 @@ async def next_page_handler(client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^pages_info"))
 async def pages_info_click(client, query: CallbackQuery):
     await query.answer("Current Page Number", show_alert=False)
+
+
+# ============================================================
+# CALLBACK: MOVIE REQUEST BUTTON
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^mreq#"))
+async def movie_request_click(client, query: CallbackQuery):
+    movie_name = query.data.split("#", 1)[1].strip()
+    user = query.from_user
+    saved = await add_request(user.id, movie_name)
+    chat_title = query.message.chat.title if query.message.chat.title else "Bot PM"
+    if saved:
+        await send_log_safe(client, (
+            f"📥 <b>#NewMovieRequest</b>\n\n"
+            f"🎬 <b>Requested Movie:</b> <code>{movie_name}</code>\n"
+            f"👤 <b>Requested By:</b> {user.mention} (<code>{user.id}</code>)\n"
+            f"👥 <b>From Chat:</b> <b>{chat_title}</b>"
+        ))
+    await query.answer(
+        f"✅ '{movie_name}' റിക്വസ്റ്റ് ചെയ്തു!\n"
+        f"Request saved!\n\n"
+        f"🔔 അപ്‌ലോഡ് ആകുമ്പോൾ ബോട്ട് PM-ൽ അറിയിക്കും (ബോട്ട് Start ചെയ്തിരിക്കണം).",
+        show_alert=True
+    )
+
+
+# ============================================================
+# CALLBACK: LANGUAGE / QUALITY FILTER
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^(flang|fqual)#"))
+async def filter_menu(client, query: CallbackQuery):
+    kind, text = query.data.split("#", 1)
+    options = LANG_FILTERS if kind == "flang" else QUAL_FILTERS
+    rows, row = [], []
+    for code, (label, _) in options.items():
+        row.append(InlineKeyboardButton(label, callback_data=cbd(f"fsel#{code}#", text)))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🔙 എല്ലാം / All", callback_data=cbd("fsel#all#", text))])
+    try:
+        await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(rows))
+    except Exception as e:
+        logger.error(f"Filter menu error: {e}")
+    await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^fsel#"))
+async def filter_select(client, query: CallbackQuery):
+    _, code, text = query.data.split("#", 2)
+    if code == "all":
+        label, search = "", text
+    else:
+        label, pattern = LANG_FILTERS.get(code) or QUAL_FILTERS.get(code) or ("", "")
+        search = f"{text} {pattern}" if pattern else text
+
+    res = await get_search_results(search, max_results=10)
+    files, offset, total_results = res if res else ([], "", 0)
+    if not files:
+        return await query.answer(f"❌ {label} ഫയലുകൾ ഇല്ല / No {label} files found!", show_alert=True)
+
+    btn = build_file_buttons(files)
+    if offset != "":
+        total_pages = (total_results + 9) // 10
+        btn.append([
+            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages_info"),
+            InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", search, f"_{offset}_1")),
+        ])
+    btn.append(filter_row(text))
+
+    head = f"<b>Here is the result for:</b> <code>{text}</code>"
+    if label:
+        head += f"\n🔎 <b>Filter:</b> {label} ({total_results})"
+    try:
+        await query.message.edit_text(head, reply_markup=InlineKeyboardMarkup(btn),
+                                      parse_mode=enums.ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Filter select error: {e}")
+    await query.answer()
