@@ -15,6 +15,18 @@ from info import CHANNELS, ADMINS, AUTH_CHANNEL, LOG_CHANNEL, PICS, BATCH_FILE_C
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from database.connections_mdb import active_connection
 
+
+def clean_name(name):
+    """[MS] പോലുള്ള മറ്റു ഗ്രൂപ്പ് ടാഗുകൾ, @handles (@RRK_Movies ഒഴികെ), വെബ്സൈറ്റ് പേരുകൾ എന്നിവ മാറ്റുന്നു"""
+    if not name:
+        return name
+    n = re.sub(r'\[[^\]]*\]', ' ', name)
+    n = re.sub(r'(?i)@(?!rrk_movies\b)\w+', ' ', n)
+    n = re.sub(r'(?i)\b(?:www\.)\S+|\b\w+\.(?:com|net|org|xyz|lol|cc|co)\b', ' ', n)
+    n = re.sub(r'\s+', ' ', n).strip(' -_.')
+    return n or name
+
+
 logger = logging.getLogger(__name__)
 
 BATCH_FILES = {}
@@ -266,7 +278,7 @@ async def start(client, message):
             BATCH_FILES[file_id] = msgs
             
         for msg in msgs:
-            title = msg.get("title")
+            title = clean_name(msg.get("title"))
             size = get_size(int(msg.get("size", 0)))
             f_caption = msg.get("caption", "")
             if BATCH_FILE_CAPTION:
@@ -411,7 +423,7 @@ async def start(client, message):
             )
             filetype = msg.media
             file = getattr(msg, filetype.value)
-            title = file.file_name
+            title = clean_name(file.file_name)
             f_caption = f"<code>{title}</code>"
             if CUSTOM_FILE_CAPTION:
                 try:
@@ -446,7 +458,7 @@ async def start(client, message):
             return await message.reply('No such file exist.')
 
     files = files_[0]
-    title = files.file_name
+    title = clean_name(files.file_name)
     size = get_size(files.file_size)
     f_caption = files.caption
     if CUSTOM_FILE_CAPTION:
@@ -455,7 +467,7 @@ async def start(client, message):
         except Exception as e:
             logger.exception(e)
     if f_caption is None:
-        f_caption = f"{files.file_name}"
+        f_caption = f"{title}"
 
     await client.send_cached_media(
         chat_id=message.from_user.id,
