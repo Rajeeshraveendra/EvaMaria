@@ -7,6 +7,7 @@ import base64
 import urllib.request
 import urllib.parse
 import tempfile
+from datetime import datetime, timedelta, timezone
 from PIL import Image
 
 from pyrogram import Client, filters, enums
@@ -135,6 +136,36 @@ def extract_movie_info(filename):
 
     return title, year
 
+SERIES_RE = re.compile(
+    r"\b(?:S(\d{1,2})\s*[ ._-]?\s*EP?\s*(\d{1,3})"
+    r"|S(\d{1,2})\s*(?:Complete|Full|All)?\s*(?:EP|Episode)s?\s*\d{1,3}"
+    r"|Season\s*(\d{1,2})"
+    r"|(?:EP|Episode)\s*(\d{1,3})"
+    r"|S(\d{1,2})(?=\s|$))",
+    re.IGNORECASE,
+)
+
+
+def extract_series_info(filename):
+    """Web series file aanenkil (series title, season) tharum; movie aanenkil (None, None)"""
+    name = os.path.basename(str(filename or ""))
+    name = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", name)
+    name = re.sub(r"\[[^\]]*\]", " ", name)
+    name = re.sub(r"\([^)]*\)", " ", name)
+    name = re.sub(r"@\w+", " ", name)
+    name = name.replace("_", " ").replace(".", " ").replace("-", " ")
+    name = re.sub(r"\s+", " ", name).strip()
+    m = SERIES_RE.search(name)
+    if not m:
+        return None, None
+    season = next((g for g in (m.group(1), m.group(3), m.group(4), m.group(6)) if g), "1")
+    head = name[:m.start()].strip()
+    title, _ = extract_movie_info(head + ".mkv") if head else ("", None)
+    if not title or title == "Movie":
+        return None, None
+    return title, str(int(season))
+
+
 def fetch_json(url):
     request = urllib.request.Request(
         url,
@@ -158,7 +189,7 @@ def imdb_poster_by_id(imdb_id):
     return None
 
 
-def fallback_details(movie_name, year=None, imdb_id=None, sugg=None):
+def fallback_details(movie_name, year=None, imdb_id=None, sugg=None, kind="movie"):
     """OMDb-il illatha puthiya movies: TMDB / IMDb suggestion vazhi details"""
     info = None
     if TMDB_API_KEY:
@@ -166,35 +197,36 @@ def fallback_details(movie_name, year=None, imdb_id=None, sugg=None):
             base = "https://api.themoviedb.org/3"
             key = urllib.parse.quote(TMDB_API_KEY)
             tmdb_id = None
+            tmdb_kind = "tv" if kind == "series" else "movie"
             if imdb_id:
                 f = fetch_json(f"{base}/find/{imdb_id}?api_key={key}&external_source=imdb_id")
-                res = f.get("movie_results") or []
+                res = f.get("tv_results" if kind == "series" else "movie_results") or []
                 if res:
                     tmdb_id = res[0].get("id")
             if not tmdb_id:
-                q = f"{base}/search/movie?api_key={key}&query={urllib.parse.quote(movie_name)}"
-                if year:
+                q = f"{base}/search/{tmdb_kind}?api_key={key}&query={urllib.parse.quote(movie_name)}"
+                if year and kind != "series":
                     q += f"&year={year}"
                 res = fetch_json(q).get("results") or []
                 if res:
                     tmdb_id = res[0].get("id")
             if tmdb_id:
-                m = fetch_json(f"{base}/movie/{tmdb_id}?api_key={key}&append_to_response=external_ids")
+                m = fetch_json(f"{base}/{tmdb_kind}/{tmdb_id}?api_key={key}&append_to_response=external_ids")
                 imdb_id = imdb_id or (m.get("external_ids") or {}).get("imdb_id")
-                rt = m.get("runtime")
+                rt = m.get("runtime") or (m.get("episode_run_time") or [None])[0]
                 va = m.get("vote_average")
                 poster = f"https://image.tmdb.org/t/p/w780{m['poster_path']}" if m.get("poster_path") else None
                 info = {
-                    "title": m.get("title") or movie_name,
-                    "year": (m.get("release_date") or "")[:4] or (year or ""),
-                    "type": "Movie",
+                    "title": m.get("title") or m.get("name") or movie_name,
+                    "year": (m.get("release_date") or m.get("first_air_date") or "")[:4] or (year or ""),
+                    "type": "Series" if kind == "series" else "Movie",
                     "runtime": f"{rt} min" if rt else "N/A",
                     "language": LANG_NAMES.get(m.get("original_language"), m.get("original_language") or "N/A"),
                     "rating": f"{va:.1f}" if va else "N/A",
                     "genres": ", ".join(g["name"] for g in m.get("genres", [])) or "N/A",
                     "poster": poster,
                     "imdb_id": imdb_id,
-                    "url": f"https://www.imdb.com/title/{imdb_id}" if imdb_id else f"https://www.themoviedb.org/movie/{tmdb_id}",
+                    "url": f"https://www.imdb.com/title/{imdb_id}" if imdb_id else f"https://www.themoviedb.org/{tmdb_kind}/{tmdb_id}",
                 }
         except Exception as e:
             print(f"TMDB fallback error: {e}")
@@ -204,7 +236,7 @@ def fallback_details(movie_name, year=None, imdb_id=None, sugg=None):
         info = {
             "title": sugg.get("l") or movie_name,
             "year": str(sugg.get("y") or year or ""),
-            "type": "Movie",
+            "type": "Series" if kind == "series" else "Movie",
             "runtime": "N/A",
             "language": "N/A",
             "rating": "N/A",
@@ -236,13 +268,13 @@ def lang_hint_from_name(name):
     return None
 
 
-async def get_imdb_details(movie_name, year=None, lang_hint=None):
+async def get_imdb_details(movie_name, year=None, lang_hint=None, kind="movie"):
     loop = asyncio.get_event_loop()
 
     def fetch():
         try:
             query = urllib.parse.quote(movie_name)
-            search_url = f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&s={query}&type=movie"
+            search_url = f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&s={query}&type={kind}"
             if year:
                 search_url += f"&y={year}"
 
@@ -296,7 +328,7 @@ async def get_imdb_details(movie_name, year=None, lang_hint=None):
                 selected = results[0]
 
             if not selected:
-                fallback_url = f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&s={query}&type=movie"
+                fallback_url = f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&s={query}&type={kind}"
                 fallback_data = fetch_json(fallback_url)
                 fallback_results = fallback_data.get("Search", [])
                 if fallback_results:
@@ -320,17 +352,17 @@ async def get_imdb_details(movie_name, year=None, lang_hint=None):
                     print(f"IMDb suggestion error: {e}")
 
             if not selected:
-                return fallback_details(movie_name, year)
+                return fallback_details(movie_name, year, kind=kind)
 
             imdb_id = selected.get("imdbID")
             if not imdb_id:
-                return fallback_details(movie_name, year)
+                return fallback_details(movie_name, year, kind=kind)
 
             detail_url = f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&i={urllib.parse.quote(imdb_id)}&plot=full"
             details = fetch_json(detail_url)
 
             if details.get("Response") != "True":
-                return fallback_details(movie_name, year, imdb_id, sugg_item)
+                return fallback_details(movie_name, year, imdb_id, sugg_item, kind=kind)
 
             title = details.get("Title", movie_name)
             movie_year = details.get("Year", year or "")
@@ -363,7 +395,7 @@ async def get_imdb_details(movie_name, year=None, lang_hint=None):
         except Exception as e:
             print(f"IMDb/OMDb Error: {e}")
             try:
-                return fallback_details(movie_name, year)
+                return fallback_details(movie_name, year, kind=kind)
             except Exception:
                 return None
 
@@ -420,7 +452,7 @@ async def prepare_hd_poster_with_logo(url):
 # CAPTION & BUTTON FORMAT
 # ============================================================
 
-def get_caption_and_buttons(movie_title, imdb_info=None):
+def get_caption_and_buttons(movie_title, imdb_info=None, season=None):
     bot_username = temp.U_NAME or "RRK_Movies_AutoBot"
 
     if imdb_info:
@@ -436,6 +468,7 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
         caption = (
             f"▫ <b>Title:</b> {title}\n"
             f"▫ <b>Type:</b> {m_type}\n"
+            + (f"▫ <b>Season:</b> {season}\n" if season else "") +
             f"▫ <b>Year:</b> {year}\n"
             f"▫ <b>Runtime:</b> {runtime}\n"
             f"▫ <b>Language:</b> {language}\n"
@@ -445,10 +478,14 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
             f"<i>Click the button below to search files...!</i>"
         )
         search_query = f"{title} {year}".strip()
+        if season:
+            search_query = title  # series: ella episodes-um search-il varum
     else:
         caption = (
             f"▫ <b>Title:</b> {movie_title}\n"
-            f"▫ <b>Type:</b> Movie\n\n"
+            f"▫ <b>Type:</b> {'Series' if season else 'Movie'}\n"
+            + (f"▫ <b>Season:</b> {season}\n" if season else "") +
+            f"\n"
             f"<i>Click the button below to search files...!</i>"
         )
         search_query = movie_title
@@ -476,39 +513,34 @@ def get_caption_and_buttons(movie_title, imdb_info=None):
 # AUTO POST HANDLER
 # ============================================================
 
-@Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
-async def auto_post_to_group(client, message):
+async def poster_post(client, message):
+    """Pazhaya reethi: oro movie-kkum poster post (POST_MODE=poster aanenkil mathram)"""
     media = message.document or message.video
-    if not media:
-        return
-
-    try:
-        if not hasattr(media, "file_type"):
-            media.file_type = "video" if message.video else "document"
-        if not hasattr(media, "caption"):
-            media.caption = None
-        await save_file(media)
-    except Exception as e:
-        print(f"Database save error: {e}")
-
-    if not UPDATE_CHANNEL:
-        return
 
     file_name = getattr(media, "file_name", "New Movie")
-    base_title, year = extract_movie_info(file_name)
-    title_key = "t_" + norm_key(base_title) if norm_key(base_title) not in ("", "movie") else None
+    series_title, season = extract_series_info(file_name)
+    if series_title:
+        # Web series: ella episodes-inum koode oru post mathram (series + season)
+        base_title, year, kind = series_title, None, "series"
+        title_key = f"s_{norm_key(series_title)}_{season}"
+    else:
+        base_title, year = extract_movie_info(file_name)
+        kind = "movie"
+        title_key = "t_" + norm_key(base_title) if norm_key(base_title) not in ("", "movie") else None
 
     async with LOCK:
         # Same movie, different quality files -> post only once
         if await already_posted(title_key):
             return
 
-        imdb_info = await get_imdb_details(base_title, year, lang_hint_from_name(file_name))
+        imdb_info = await get_imdb_details(base_title, year, lang_hint_from_name(file_name), kind)
         imdb_key = imdb_info.get("imdb_id") if imdb_info else None
+        if imdb_key and kind == "series":
+            imdb_key = f"{imdb_key}_s{season}"  # puthiya season vannal mathram veendum post
         if imdb_key and await already_posted(imdb_key):
             await mark_posted(None, title_key)
             return
-        caption, buttons = get_caption_and_buttons(base_title, imdb_info)
+        caption, buttons = get_caption_and_buttons(base_title, imdb_info, season if kind == "series" else None)
 
         candidates = []
         if imdb_info:
@@ -572,3 +604,155 @@ async def auto_post_to_group(client, message):
                 os.remove(processed_poster)
             except Exception:
                 pass
+
+
+# ============================================================
+# TODAY'S MOVIES DIGEST (default)
+# Divasam oru message mathram; puthiya film varumbol athe message edit cheyyum
+# (edit-inu notification illa, members-inu disturb illa)
+# ============================================================
+
+POST_MODE = os.environ.get("POST_MODE", "digest").strip().lower()  # digest / poster
+DIGEST_DB = db["daily_digest"]
+UAE_TZ = timezone(timedelta(hours=4))
+DIGEST_LANGS = ["Malayalam", "Tamil", "Telugu", "Hindi", "Kannada", "English", "Bengali", "Marathi"]
+DIGEST_FOOTER = (
+    "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+    "                      Released ✅\n"
+    "       📌 Pin For Instant Updates\n"
+    "                😎 Check it Out 😎\n"
+    "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
+)
+
+
+def digest_langs(file_name):
+    n = " " + re.sub(r"[^a-z]+", " ", str(file_name).lower()) + " "
+    short = {"mal": "Malayalam", "tam": "Tamil", "tel": "Telugu", "hin": "Hindi", "kan": "Kannada", "eng": "English"}
+    found = []
+    for lang in DIGEST_LANGS:
+        if f" {lang.lower()} " in n:
+            found.append(lang)
+    for k, v in short.items():
+        if f" {k} " in n and v not in found:
+            found.append(v)
+    return found
+
+
+def search_link(query):
+    bot_username = temp.U_NAME or "RRK_Movies_AutoBot"
+    q = query.strip()[:40]  # Telegram start link 64 char limit
+    token = base64.urlsafe_b64encode(q.encode()).decode().rstrip("=")
+    return f"https://t.me/{bot_username}?start=search_{token}"
+
+
+def html_esc(t):
+    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def digest_item(file_name):
+    """(key, label, search query)"""
+    series_title, season = extract_series_info(file_name)
+    year_m = re.search(r"\b(19\d{2}|20\d{2})\b", re.sub(r"[._\-\[\]()]", " ", str(file_name)))
+    year = year_m.group(1) if year_m else None
+    if series_title:
+        title, query = series_title, series_title
+        label = f"{title}" + (f" ({year})" if year else "") + f" S{int(season):02d}"
+        key = f"s_{norm_key(title)}_{season}"
+    else:
+        title, year2 = extract_movie_info(file_name)
+        year = year2 or year
+        if norm_key(title) in ("", "movie"):
+            return None
+        langs = digest_langs(file_name)
+        label = f"{title}" + (f" ({year})" if year else "") + (f" {' + '.join(langs[:3])}" if langs else "")
+        query = f"{title} {year}" if year else title
+        key = f"m_{norm_key(title)}_{year or ''}_{norm_key(''.join(langs))}"
+    return key, label, query
+
+
+def build_digest(items):
+    lines = ["<b>Today's Movies :</b>"]
+    for it in items:
+        lines.append(f"🎬 {html_esc(it['label'])}  <a href='{it['link']}'>[📥 Get File]</a>")
+        lines.append("")
+    return "\n".join(lines) + "\n" + DIGEST_FOOTER
+
+
+@Client.on_message(filters.chat(CHANNELS) & (filters.document | filters.video))
+async def auto_post_to_group(client, message):
+    media = message.document or message.video
+    if not media:
+        return
+
+    try:
+        if not hasattr(media, "file_type"):
+            media.file_type = "video" if message.video else "document"
+        if not hasattr(media, "caption"):
+            media.caption = None
+        await save_file(media)
+    except Exception as e:
+        print(f"Database save error: {e}")
+
+    if not UPDATE_CHANNEL:
+        return
+
+    if POST_MODE == "poster":
+        return await poster_post(client, message)
+
+    item = digest_item(getattr(media, "file_name", "") or "")
+    if not item:
+        return
+    key, label, query = item
+
+    async with LOCK:
+        today = datetime.now(UAE_TZ).strftime("%Y-%m-%d")
+        try:
+            doc = await DIGEST_DB.find_one({"_id": today}) or {}
+        except Exception as e:
+            print(f"Digest DB error: {e}")
+            doc = {}
+        items = doc.get("items", [])
+        if any(i.get("key") == key for i in items):
+            return  # same film / same series season already listed today
+        part = doc.get("part", 1)
+        msg_id = doc.get("msg_id")
+        part_start = doc.get("part_start", 0)
+
+        items.append({"key": key, "label": label, "link": search_link(query)})
+        text = build_digest(items[part_start:])
+
+        if len(text) > 3900:  # Telegram limit: puthiya message thudangum
+            part_start = len(items) - 1
+            part += 1
+            msg_id = None
+            text = build_digest(items[part_start:])
+
+        sent_id = None
+        if msg_id:
+            try:
+                await client.edit_message_text(
+                    UPDATE_CHANNEL, msg_id, text,
+                    parse_mode=enums.ParseMode.HTML, disable_web_page_preview=True
+                )
+                sent_id = msg_id
+            except Exception as e:
+                print(f"Digest edit error (sending new): {e}")
+        if not sent_id:
+            try:
+                m = await client.send_message(
+                    UPDATE_CHANNEL, text,
+                    parse_mode=enums.ParseMode.HTML, disable_web_page_preview=True
+                )
+                sent_id = m.id
+            except Exception as e:
+                print(f"Digest send error: {e}")
+                return
+
+        try:
+            await DIGEST_DB.update_one(
+                {"_id": today},
+                {"$set": {"items": items, "msg_id": sent_id, "part": part, "part_start": part_start}},
+                upsert=True,
+            )
+        except Exception as e:
+            print(f"Digest save error: {e}")
