@@ -13,7 +13,7 @@ GROUP_LINK = "https://t.me/+NoL3OkqPwBtiZjY0"
 GROUP_NAME = "RRK Movies Group"
 
 HISTORY_FILE = "posted_movierulz.txt"
-TMDB_API_KEY = "1b8826543b7431e133c9429188d3d922"
+TMDB_API_KEY = (os.environ.get("TMDB_API_KEY") or "").strip()
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
