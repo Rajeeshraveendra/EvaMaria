@@ -50,6 +50,9 @@ async def delete_group_request_after_pm(client, user_id, delay=10):
     except Exception as e:
         logger.error(f"Error deleting group msg after PM: {e}")
 
+from plugins.invite import share_row
+
+
 async def send_completion_message(client, user_id):
     """File ayachu kazhinjal thazhe attractive thank you msg ayakkunnu"""
     success_txt = (
@@ -74,7 +77,8 @@ async def send_completion_message(client, user_id):
         ],
         [
             InlineKeyboardButton("🔍 Search More Movies", url="https://t.me/RRK_Movies")
-        ]
+        ],
+        share_row()
     ]
 
     try:
@@ -95,7 +99,8 @@ def start_buttons():
          InlineKeyboardButton('📢 Updates', url='https://t.me/+NoL3OkqPwBtiZjY0')],
         [InlineKeyboardButton('🔥 Trending', callback_data='trending'),
          InlineKeyboardButton('📋 My Requests', url=f'https://t.me/{temp.U_NAME}?start=myreq')],
-        [InlineKeyboardButton('🎲 Surprise Me', callback_data='surprise')],
+        [InlineKeyboardButton('🎲 Surprise Me', callback_data='surprise'),
+         InlineKeyboardButton('🎁 Invite Friends', callback_data='invite')],
         [InlineKeyboardButton('ℹ️ Help', callback_data='help'),
          InlineKeyboardButton('😊 About', callback_data='about')],
         [InlineKeyboardButton('➕ Add Me To Your Group ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')],
@@ -142,6 +147,9 @@ async def start(client, message):
 
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
+        if len(message.command) == 2 and message.command[1].startswith("ref_"):
+            from plugins.invite import credit_referral
+            await credit_referral(client, message.from_user.id, message.command[1])
         if LOG_CHANNEL:
             try:
                 await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
@@ -187,7 +195,7 @@ async def start(client, message):
         from plugins.requests_notify import my_requests
         return await my_requests(client, message)
 
-    if message.command[1] in ["subscribe", "error", "okay", "help"]:
+    if message.command[1] in ["subscribe", "error", "okay", "help"] or message.command[1].startswith("ref_"):
         await send_start_menu(message)
         return
 
