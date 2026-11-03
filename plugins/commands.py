@@ -88,6 +88,30 @@ async def send_completion_message(client, user_id):
     except Exception as e:
         logger.error(f"Completion Message Error: {e}")
 
+def start_buttons():
+    return [
+        [InlineKeyboardButton('🔍 Search Movies', switch_inline_query_current_chat='')],
+        [InlineKeyboardButton('🎬 Movies Group', url='https://t.me/RRK_Movies'),
+         InlineKeyboardButton('📢 Updates', url='https://t.me/+NoL3OkqPwBtiZjY0')],
+        [InlineKeyboardButton('ℹ️ Help', callback_data='help'),
+         InlineKeyboardButton('😊 About', callback_data='about')],
+        [InlineKeyboardButton('➕ Add Me To Your Group ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')],
+        [InlineKeyboardButton('💬 Contact Admin', url='https://t.me/RajeeshRaveendra')],
+    ]
+
+
+async def send_start_menu(message):
+    from plugins.filters import colorize
+    btn = start_buttons()
+    m = await message.reply_photo(
+        photo=random.choice(PICS),
+        caption=script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME),
+        reply_markup=InlineKeyboardMarkup(btn),
+        parse_mode=enums.ParseMode.HTML
+    )
+    await colorize(m, btn)
+
+
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
     if message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
@@ -152,41 +176,11 @@ async def start(client, message):
 
     # സാധാരണ /start
     if len(message.command) != 2:
-        buttons = [[
-            InlineKeyboardButton('➕ 𝙰𝚍𝚍 𝙼𝚎 𝚃𝚘 𝚈𝚘𝚞𝚛 𝙶𝚛𝚘𝚞𝚙𝚜 ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-            ],[
-            InlineKeyboardButton('🔍 𝚂𝚎𝚊𝚛𝚌𝚑', switch_inline_query_current_chat=''),
-            InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
-            ],[
-            InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-            InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
-        ]]
-        reply_markup = InlineKeyboardMarkup(buttons)
-        await message.reply_photo(
-            photo=random.choice(PICS),
-            caption=script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
-        )
+        await send_start_menu(message)
         return
 
     if message.command[1] in ["subscribe", "error", "okay", "help"]:
-        buttons = [[
-            InlineKeyboardButton('➕ 𝙰𝚍𝚍 𝙼𝚎 𝚃𝚘 𝚈𝚘𝚞𝚛 𝙶𝚛𝚘𝚞𝚙𝚜 ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-            ],[
-            InlineKeyboardButton('🔍 𝚂𝚎𝚊𝚛𝚌𝚑', switch_inline_query_current_chat=''),
-            InlineKeyboardButton('🤖 𝚄𝚙𝚍𝚊𝚝𝚎𝚜', url='https://t.me/+NoL3OkqPwBtiZjY0')
-            ],[
-            InlineKeyboardButton('ℹ️ 𝙷𝚎𝚕𝚙', callback_data='help'),
-            InlineKeyboardButton('😊 𝙰𝚋𝚘𝚞𝚝', callback_data='about')
-        ]]
-        reply_markup = InlineKeyboardMarkup(buttons)
-        await message.reply_photo(
-            photo=random.choice(PICS),
-            caption=script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
-        )
+        await send_start_menu(message)
         return
 
     data = message.command[1]
@@ -227,32 +221,19 @@ async def start(client, message):
                 parse_mode=enums.ParseMode.HTML
             )
 
-        btn = []
-        for file in files:
-            file_name = file.file_name
-            size = get_size(file.file_size)
-            btn_title = f"[{size}] {file_name}"
-            if len(btn_title) > 55:
-                btn_title = btn_title[:52] + ".."
-            btn.append([InlineKeyboardButton(btn_title, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
-
+        from plugins.filters import build_file_buttons, send_result, filter_row, cbd
+        pat = re.escape(search_query).replace("\\ ", " ")
+        btn = build_file_buttons(files)
         if offset != "":
-            cb_q = search_query
-            while len(f"next_{cb_q}_{offset}_1".encode()) > 64:
-                cb_q = cb_q[:-1]
-            btn.append([InlineKeyboardButton("Next >>", callback_data=f"next_{cb_q}_{offset}_1")])
-
-        res_text = (
-            f"<b>Search Query:</b> <code>{search_query}</code>\n"
-            f"<b>Total Results:</b> {total_results}\n"
-            f"<b>Page:</b> 1\n\n"
-            f"🔻 <i>Tap on the file button and then start to download.</i>"
-        )
-        return await message.reply_text(
-            res_text,
-            reply_markup=InlineKeyboardMarkup(btn),
-            parse_mode=enums.ParseMode.HTML
-        )
+            total_pages = (total_results + 9) // 10
+            btn.append([
+                InlineKeyboardButton(f"📚 Page 1/{total_pages}", callback_data="pages_info"),
+                InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", pat, f"_{offset}_1"))
+            ])
+        if total_results > 1:
+            btn.append([InlineKeyboardButton("📤 Send All Files", callback_data=cbd("sendall#", pat))])
+            btn.append(filter_row(pat))
+        return await send_result(message, search_query, files, total_results, btn)
 
     # ============================================================
     # 2. BATCH & DSTORE HANDLERS
