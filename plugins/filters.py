@@ -299,6 +299,9 @@ async def send_result(message, query, files, total_results, btn):
         pass
     info = await get_search_details(query, files)
     text = details_block(info) + result_header(query, total_results)
+    iid = (info or {}).get("imdb_id")
+    if iid and not any(getattr(b, "callback_data", "") and str(b.callback_data).startswith("similar#") for r in btn for b in r):
+        btn.append([InlineKeyboardButton("🎬 Similar Movies", callback_data=f"similar#{iid}")])
     markup = InlineKeyboardMarkup(btn)
     poster = (info or {}).get("poster")
     if poster and len(text) <= 1024:
