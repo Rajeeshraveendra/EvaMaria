@@ -40,7 +40,7 @@ class temp(object):
     B_NAME = None
     SETTINGS = {}
 
-FSUB_LINK = os.environ.get("AUTH_LINK", "https://t.me/RRK_Movies")
+FSUB_LINK = os.environ.get("AUTH_LINK", "https://t.me/+Z_FD__rQ7bc3NDQ8")
 
 
 def _fsub_chat():
