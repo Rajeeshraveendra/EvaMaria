@@ -1,7 +1,9 @@
 import logging
 from pyrogram import Client, emoji, filters
 from pyrogram.errors.exceptions.bad_request_400 import QueryIdInvalid
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultCachedDocument, InlineQuery
+import asyncio
+from pyrogram import enums
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultCachedDocument, InlineQuery, InlineQueryResultPhoto
 from database.ia_filterdb import get_search_results
 from utils import is_subscribed, get_size, temp
 from info import CACHE_TIME, AUTH_USERS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION
@@ -53,6 +55,31 @@ async def answer(bot, query):
                                                   max_results=10,
                                                   offset=offset)
 
+    # 🎬 Aadya result: poster + IMDb details (cache-il ninnu vegam; 5 sec-il kittiyillenkil ozhivakkum)
+    if offset == 0 and files and len(string) >= 2:
+        try:
+            from plugins.filters import get_search_details, details_block
+            from plugins.requests_notify import search_link
+            info = await asyncio.wait_for(get_search_details(string, files), timeout=5)
+            poster = (info or {}).get("poster")
+            if poster and str(poster).startswith("http"):
+                cap = details_block(info) + f"📂 <b>{total}</b> files"
+                yr = f" ({info.get('year')})" if info.get("year") and info.get("year") != "N/A" else ""
+                rt = info.get("rating")
+                desc = " · ".join(x for x in [f"⭐ {rt}" if rt and rt != "N/A" else "", info.get("genres") or "", f"{total} files"] if x and x != "N/A")
+                results.append(InlineQueryResultPhoto(
+                    photo_url=poster, thumb_url=poster, id=f"poster_{offset}",
+                    title=f"🎬 {info.get('title')}{yr}", description=desc,
+                    caption=cap[:1024], parse_mode=enums.ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📥 Get Files", url=search_link(string))]])))
+        except Exception as e:
+            logger.error(f"inline poster: {e}")
+
+    try:
+        from plugins.filters import btn_name
+    except Exception:
+        btn_name = lambda n: n
+
     for file in files:
         title=file.file_name
         size=get_size(file.file_size)
@@ -67,10 +94,10 @@ async def answer(bot, query):
             f_caption = f"{file.file_name}"
         results.append(
             InlineQueryResultCachedDocument(
-                title=file.file_name,
+                title=btn_name(file.file_name),
                 document_file_id=file.file_id,
                 caption=f_caption,
-                description=f'Size: {get_size(file.file_size)}\nType: {file.file_type}',
+                description=f'《{get_size(file.file_size)}》 {"🔥 " if any(q in (file.file_name or "").lower() for q in ("1080p","2160p","4k")) else ""}{file.file_type or ""}',
                 reply_markup=reply_markup))
 
     if results:
