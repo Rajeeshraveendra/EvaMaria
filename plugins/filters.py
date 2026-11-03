@@ -15,6 +15,9 @@ from utils import get_settings, get_size, is_subscribed, save_group_settings, te
 from info import BOT_TOKEN, ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 from plugins.requests_notify import add_request
 from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_from_name, fetch_json, prepare_hd_poster_with_logo
+from database.ia_filterdb import db
+import time
+IMDB_DB = db["imdb_cache"]   # restart kazhinjalum poster/details vegam varaan
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +218,17 @@ async def get_search_details(query, files):
     key = f"{_norm(title)}_{year}"
     if key in IMDB_CACHE:
         return IMDB_CACHE[key]
+    try:
+        doc = await IMDB_DB.find_one({"_id": key})
+        if doc:
+            age = time.time() - doc.get("ts", 0)
+            if (doc.get("info") and age < 30 * 86400) or (not doc.get("info") and age < 86400):
+                IMDB_CACHE[key] = doc.get("info")
+                if IMDB_CACHE[key] is not None:
+                    IMDB_CACHE[key]["_key"] = key
+                return IMDB_CACHE[key]
+    except Exception as e:
+        logger.error(f"imdb cache read: {e}")
     info = None
     try:
         info = await asyncio.wait_for(get_imdb_details(title, year, lang), timeout=12)
@@ -234,6 +248,12 @@ async def get_search_details(query, files):
     if len(IMDB_CACHE) > 300:
         IMDB_CACHE.clear()
     IMDB_CACHE[key] = info
+    if info is not None:
+        info["_key"] = key
+    try:
+        await IMDB_DB.update_one({"_id": key}, {"$set": {"info": info, "ts": time.time()}}, upsert=True)
+    except Exception as e:
+        logger.error(f"imdb cache save: {e}")
     return info
 
 
@@ -273,6 +293,10 @@ def details_block(info):
 
 async def send_result(message, query, files, total_results, btn):
     """Poster undenkil photo + caption, illenkil text"""
+    try:
+        await message._client.send_chat_action(message.chat.id, enums.ChatAction.UPLOAD_PHOTO)
+    except Exception:
+        pass
     info = await get_search_details(query, files)
     text = details_block(info) + result_header(query, total_results)
     markup = InlineKeyboardMarkup(btn)
@@ -297,6 +321,11 @@ async def send_result(message, query, files, total_results, btn):
                                               parse_mode=enums.ParseMode.HTML)
                 if m.photo:
                     info["_photo_id"] = m.photo.file_id
+                    if info.get("_key"):
+                        try:
+                            await IMDB_DB.update_one({"_id": info["_key"]}, {"$set": {"info._photo_id": m.photo.file_id}})
+                        except Exception:
+                            pass
                 await colorize(m, btn)
                 return m
             except Exception as e:
