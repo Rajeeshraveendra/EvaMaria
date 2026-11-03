@@ -1,5 +1,5 @@
 class script(object):
-    START_TXT = """👋 <b>ഹലോ {},</b>
+    START_TXT = """🙏 <b>നമസ്കാരം {},</b>
 
 🍿 <b>RRK Movies</b>-ലേക്ക് സ്വാഗതം!
 തിയറ്റർ പ്രിന്റുകളോട് വിട — ഇവിടെ <b>Full HD</b> സിനിമകൾ മാത്രം. 🎬
