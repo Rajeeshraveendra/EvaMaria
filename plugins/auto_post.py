@@ -93,6 +93,7 @@ def clean_text(text):
 def extract_movie_info(filename):
     name = os.path.basename(filename)
     name = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", name)
+    paren_year = re.search(r"[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]", name)
     name = re.sub(r"\[[^\]]*\]", " ", name)
     name = re.sub(r"\([^)]*\)", " ", name)
     name = re.sub(r"@\w+", " ", name)
@@ -103,6 +104,8 @@ def extract_movie_info(filename):
 
     year_match = re.search(r"\b(19\d{2}|20\d{2})\b", name)
     year = year_match.group(1) if year_match else None
+    if not year and paren_year:
+        year = paren_year.group(1)
 
     stop_words = {
         "hindi", "tamil", "telugu", "malayalam", "kannada", "english", "bengali", "marathi",
@@ -122,6 +125,8 @@ def extract_movie_info(filename):
         if re.fullmatch(r"\d+(?:\.\d+)?(?:gb|mb)", lower):
             break
         if lower in stop_words:
+            break
+        if re.fullmatch(r"(malayalam|tamil|telugu|hindi|kannada|english)(hdrip|webdl|webrip|hd|bluray|dvdrip|predvd)", lower):
             break
         if re.fullmatch(r"\d+", lower):
             continue
