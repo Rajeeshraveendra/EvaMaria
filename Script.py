@@ -31,6 +31,7 @@ class script(object):
 /trending - 🔥 ഈ ആഴ്ച ട്രെൻഡിംഗ് സിനിമകൾ
 /myrequests - 📋 താങ്കളുടെ റിക്വസ്റ്റുകൾ
 /surprise - 🎲 ഒരു റാൻഡം സിനിമ
+/invite - 🎁 സുഹൃത്തുക്കളെ ക്ഷണിക്കാൻ
 
 😎 Powered by @RRK_Movies
 
