@@ -52,16 +52,14 @@ async def delete_group_request_after_pm(client, user_id, delay=10):
 
 async def send_completion_message(client, user_id):
     """File ayachu kazhinjal thazhe attractive thank you msg ayakkunnu"""
-    from plugins.gender import words
-    vili, karthavu, poss = await words(user_id)
     success_txt = (
         "✨ ━━━━━━━━━━━━━━━━━━━━━━ ✨\n"
         "🍿 <b>ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
         "<i>Files delivered successfully!</i>\n"
         "✨ ━━━━━━━━━━━━━━━━━━━━━━ ✨\n\n"
-        f"🎉 <b>{vili}, തിരഞ്ഞ സിനിമയുടെ ഫയലുകൾ ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
+        "🎉 <b>താങ്കൾ തിരഞ്ഞ സിനിമയുടെ ഫയലുകൾ ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
         "<i>Your requested movie files are ready for you.</i>\n\n"
-        f"💬 <b>വിലയേറിയ അഭിപ്രായങ്ങളും നിർദ്ദേശങ്ങളും അഡ്മിനെ അറിയിക്കുക.</b>\n"
+        "💬 <b>താങ്കളുടെ വിലയേറിയ അഭിപ്രായങ്ങളും നിർദ്ദേശങ്ങളും അഡ്മിനെ അറിയിക്കുക.</b>\n"
         "<i>Feel free to share your valuable feedback and suggestions with the admin.</i>\n\n"
         "❤️ <b>RRK Movies AutoBot തിരഞ്ഞെടുത്തതിന് നന്ദി!</b>\n"
         "🍿 <b>Happy Watching & Enjoy Your Movie!</b>\n\n"
@@ -104,15 +102,8 @@ def start_buttons():
 
 async def send_start_menu(message):
     from plugins.filters import colorize
-    from plugins.gender import words, gender_row
-    uid = message.from_user.id
-    vili = (await words(uid))[0]
     btn = start_buttons()
-    grow = await gender_row(uid)
-    caption = script.START_TXT.format(f"{vili} {message.from_user.mention}", temp.U_NAME, temp.B_NAME)
-    if grow:
-        btn.insert(0, grow)
-        caption += "\n\n👇 <b>Male / Female? ഒന്ന് തിരഞ്ഞെടുക്കൂ</b>"
+    caption = script.START_TXT.format(message.from_user.mention, temp.U_NAME, temp.B_NAME)
     m = await message.reply_photo(
         photo=random.choice(PICS),
         caption=caption,
@@ -243,10 +234,6 @@ async def start(client, message):
         if total_results > 1:
             btn.append([InlineKeyboardButton("📤 Send All Files", callback_data=cbd("sendall#", pat))])
             btn.append(filter_row(pat))
-        from plugins.gender import gender_row
-        grow = await gender_row(message.from_user.id)
-        if grow:
-            btn.append(grow)
         return await send_result(message, search_query, files, total_results, btn)
 
     # ============================================================
