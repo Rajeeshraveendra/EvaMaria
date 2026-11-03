@@ -9,7 +9,7 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 REFS = db["referrals"]          # {_id: new_user_id, by: inviter_id, ts}
-GROUP_LINK = "https://t.me/RRK_Movies"
+GROUP_LINK = "https://t.me/+Z_FD__rQ7bc3NDQ8"
 
 
 def share_url(text=None, link=None):
