@@ -76,7 +76,7 @@ async def send_completion_message(client, user_id):
             InlineKeyboardButton("💬 Admin RRK", url="https://t.me/RajeeshRaveendra")
         ],
         [
-            InlineKeyboardButton("🔍 Search More Movies", url="https://t.me/RRK_Movies")
+            InlineKeyboardButton("🔍 Search More Movies", url="https://t.me/+Z_FD__rQ7bc3NDQ8")
         ],
         share_row()
     ]
@@ -95,7 +95,7 @@ async def send_completion_message(client, user_id):
 def start_buttons():
     return [
         [InlineKeyboardButton('🔍 Search Movies', switch_inline_query_current_chat='')],
-        [InlineKeyboardButton('🎬 Movies Group', url='https://t.me/RRK_Movies'),
+        [InlineKeyboardButton('🎬 Movies Group', url='https://t.me/+Z_FD__rQ7bc3NDQ8'),
          InlineKeyboardButton('📢 Updates', url='https://t.me/+NoL3OkqPwBtiZjY0')],
         [InlineKeyboardButton('🔥 Trending', callback_data='trending'),
          InlineKeyboardButton('📋 My Requests', url=f'https://t.me/{temp.U_NAME}?start=myreq')],
