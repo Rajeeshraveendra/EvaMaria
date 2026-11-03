@@ -323,12 +323,12 @@ def _btn_json(b, style):
 async def colorize(msg, btn):
     if not msg or not BOT_TOKEN:
         return
-    styles = ("primary", "success")
+    styles = ("primary", "success", "danger")
     rows, k = [], 0
     for row in btn:
         r = []
         for b in row:
-            j = _btn_json(b, styles[k % 2])
+            j = _btn_json(b, styles[k % 3])
             k += 1
             if j:
                 r.append(j)
