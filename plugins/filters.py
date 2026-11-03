@@ -19,7 +19,7 @@ from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_fr
 logger = logging.getLogger(__name__)
 
 USER_GRP_MSGS = {}
-OMDB_API_KEY = "97960898"
+OMDB_API_KEY = (os.environ.get("OMDB_API_KEY") or "97960898").strip()
 
 # ============================================================
 # DUAL AUTO-SUGGESTION ENGINE (Google + OMDb)
@@ -505,6 +505,11 @@ async def give_filter(client, message):
     )
     await send_log_safe(client, log_txt)
 
+    try:
+        from plugins.trending import record_search
+        asyncio.create_task(record_search(text))
+    except Exception:
+        pass
     btn = build_file_buttons(files)
 
     if offset != "":
