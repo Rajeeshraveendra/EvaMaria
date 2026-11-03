@@ -93,6 +93,8 @@ def start_buttons():
         [InlineKeyboardButton('🔍 Search Movies', switch_inline_query_current_chat='')],
         [InlineKeyboardButton('🎬 Movies Group', url='https://t.me/RRK_Movies'),
          InlineKeyboardButton('📢 Updates', url='https://t.me/+NoL3OkqPwBtiZjY0')],
+        [InlineKeyboardButton('🔥 Trending', callback_data='trending'),
+         InlineKeyboardButton('📋 My Requests', url=f'https://t.me/{temp.U_NAME}?start=myreq')],
         [InlineKeyboardButton('ℹ️ Help', callback_data='help'),
          InlineKeyboardButton('😊 About', callback_data='about')],
         [InlineKeyboardButton('➕ Add Me To Your Group ➕', url=f'http://t.me/{temp.U_NAME}?startgroup=true')],
@@ -179,6 +181,10 @@ async def start(client, message):
     if len(message.command) != 2:
         await send_start_menu(message)
         return
+
+    if message.command[1] == "myreq":
+        from plugins.requests_notify import my_requests
+        return await my_requests(client, message)
 
     if message.command[1] in ["subscribe", "error", "okay", "help"]:
         await send_start_menu(message)
@@ -691,3 +697,32 @@ async def save_template(client, message):
     template = message.text.split(" ", 1)[1]
     await save_group_settings(grp_id, 'template', template)
     await sts.edit(f"Successfully changed template for {title} to\n\n{template}")
+
+
+# ============================================================
+# START MENU CALLBACKS: Help / About / Back
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^(help|about|start_back)$"))
+async def start_menu_cb(client, query):
+    from plugins.filters import colorize
+    from pyrogram.types import InputMediaPhoto
+    d = query.data
+    back = [[InlineKeyboardButton("⬅️ Back", callback_data="start_back")]]
+    if d == "help":
+        text, btn = script.HELP_TXT.format(query.from_user.mention), back
+    elif d == "about":
+        text, btn = script.ABOUT_TXT.format(temp.B_NAME or "RRK Movies AutoBot"), back
+    else:
+        text = script.START_TXT.format(query.from_user.mention, temp.U_NAME, temp.B_NAME)
+        btn = start_buttons()
+    await query.answer()
+    try:
+        if query.message.photo:
+            await query.message.edit_caption(text, reply_markup=InlineKeyboardMarkup(btn),
+                                             parse_mode=enums.ParseMode.HTML)
+        else:
+            await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(btn),
+                                          parse_mode=enums.ParseMode.HTML, disable_web_page_preview=True)
+        await colorize(query.message, btn)
+    except Exception as e:
+        logger.error(f"start menu cb: {e}")
