@@ -11,9 +11,9 @@ _CACHE = {}
 
 WORDS = {
     #      വിളി (vocative), കർത്താവ് (nominative), ന്റെ (possessive)
-    "m": ("മോനെ", "മോൻ", "മോന്റെ"),
-    "f": ("മോളെ", "മോൾ", "മോളുടെ"),
-    None: ("ചങ്ങാതീ", "ചങ്ങാതി", "ചങ്ങാതിയുടെ"),
+    "m": ("മോനെ", "", ""),
+    "f": ("മോളെ", "", ""),
+    None: ("ചങ്ങാതീ", "", ""),
 }
 
 
@@ -41,8 +41,8 @@ async def gender_row(uid):
     """Gender ariyillenkil chodikkan oru button row; ariyamenkil None"""
     if await get_gender(uid):
         return None
-    return [InlineKeyboardButton("👦 ഞാൻ മോൻ", callback_data="setg#m"),
-            InlineKeyboardButton("👧 ഞാൻ മോൾ", callback_data="setg#f")]
+    return [InlineKeyboardButton("👦 Male", callback_data="setg#m"),
+            InlineKeyboardButton("👧 Female", callback_data="setg#f")]
 
 
 @Client.on_callback_query(filters.regex(r"^setg#[mf]$"))
