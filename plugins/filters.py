@@ -614,7 +614,7 @@ async def spelling_click_handler(client, query: CallbackQuery):
         )
         
         btn = [[
-            InlineKeyboardButton("📢 Updates Channel", url="https://t.me/RRK_Movies")
+            InlineKeyboardButton("📢 Updates Channel", url="https://t.me/+Z_FD__rQ7bc3NDQ8")
         ]]
 
         return await query.message.edit_text(
