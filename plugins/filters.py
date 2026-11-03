@@ -19,7 +19,7 @@ from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_fr
 logger = logging.getLogger(__name__)
 
 USER_GRP_MSGS = {}
-OMDB_API_KEY = (os.environ.get("OMDB_API_KEY") or "97960898").strip()
+OMDB_API_KEY = (os.environ.get("OMDB_API_KEY") or "").strip()
 
 # ============================================================
 # DUAL AUTO-SUGGESTION ENGINE (Google + OMDb)
