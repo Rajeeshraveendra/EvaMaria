@@ -59,9 +59,9 @@ async def send_completion_message(client, user_id):
         "🍿 <b>ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
         "<i>Files delivered successfully!</i>\n"
         "✨ ━━━━━━━━━━━━━━━━━━━━━━ ✨\n\n"
-        f"🎉 <b>{karthavu} തിരഞ്ഞ സിനിമയുടെ ഫയലുകൾ ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
+        f"🎉 <b>{vili}, തിരഞ്ഞ സിനിമയുടെ ഫയലുകൾ ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
         "<i>Your requested movie files are ready for you.</i>\n\n"
-        f"💬 <b>{vili}, {poss} വിലയേറിയ അഭിപ്രായങ്ങളും നിർദ്ദേശങ്ങളും അഡ്മിനെ അറിയിക്കുക.</b>\n"
+        f"💬 <b>വിലയേറിയ അഭിപ്രായങ്ങളും നിർദ്ദേശങ്ങളും അഡ്മിനെ അറിയിക്കുക.</b>\n"
         "<i>Feel free to share your valuable feedback and suggestions with the admin.</i>\n\n"
         "❤️ <b>RRK Movies AutoBot തിരഞ്ഞെടുത്തതിന് നന്ദി!</b>\n"
         "🍿 <b>Happy Watching & Enjoy Your Movie!</b>\n\n"
@@ -112,7 +112,7 @@ async def send_start_menu(message):
     caption = script.START_TXT.format(f"{vili} {message.from_user.mention}", temp.U_NAME, temp.B_NAME)
     if grow:
         btn.insert(0, grow)
-        caption += "\n\n👇 <b>മോനാണോ മോളാണോ? ഒന്ന് തിരഞ്ഞെടുക്കൂ</b>"
+        caption += "\n\n👇 <b>Male / Female? ഒന്ന് തിരഞ്ഞെടുക്കൂ</b>"
     m = await message.reply_photo(
         photo=random.choice(PICS),
         caption=caption,
