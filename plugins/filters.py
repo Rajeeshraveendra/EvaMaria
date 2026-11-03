@@ -5,14 +5,16 @@ import logging
 import json
 import urllib.request
 import urllib.parse
+import os
 from pyrogram import filters, Client, enums
+from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from database.ia_filterdb import get_search_results, get_file_details
 from database.connections_mdb import active_connection
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from info import BOT_TOKEN, ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 from plugins.requests_notify import add_request
-from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_from_name, fetch_json
+from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_from_name, fetch_json, prepare_hd_poster_with_logo
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +149,8 @@ def btn_name(raw_name):
 def build_file_buttons(files):
     btn = []
     for file in files:
-        label = f"《{get_size(file.file_size)}》 {btn_name(file.file_name)}"
+        fire = "🔥 " if re.search(r"(?i)1080p|2160p|\b4k\b", file.file_name or "") else ""
+        label = f"{fire}《{get_size(file.file_size)}》 {btn_name(file.file_name)}"
         btn.append([InlineKeyboardButton(label, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
     return btn
 
@@ -259,8 +262,12 @@ def details_block(info):
         if len(p) > 300:
             p = p[:297].rsplit(" ", 1)[0] + "..."
         t += f"📖 <b>Story :</b> <i>{_esc(p)}</i>\n"
+    links = []
     if info.get("url"):
-        t += f"🔗 <a href=\"{info['url']}\">IMDb Page</a>\n"
+        links.append(f"🔗 <a href=\"{info['url']}\">IMDb</a>")
+    yq = urllib.parse.quote_plus(f"{info['title']} {info.get('year') or ''} trailer".strip())
+    links.append(f"▶️ <a href=\"https://www.youtube.com/results?search_query={yq}\">Trailer</a>")
+    t += "  |  ".join(links) + "\n"
     return t + "━━━━━━━━━━━━━━━\n"
 
 
@@ -271,16 +278,35 @@ async def send_result(message, query, files, total_results, btn):
     markup = InlineKeyboardMarkup(btn)
     poster = (info or {}).get("poster")
     if poster and len(text) <= 1024:
-        for url in (poster, (info or {}).get("poster_alt")):
-            if not url:
-                continue
+        cached = info.get("_photo_id")
+        if cached:
             try:
-                m = await message.reply_photo(url, caption=text, reply_markup=markup,
+                m = await message.reply_photo(cached, caption=text, reply_markup=markup,
                                               parse_mode=enums.ParseMode.HTML)
                 await colorize(m, btn)
                 return m
             except Exception as e:
+                logger.error(f"Cached poster error: {e}")
+        for url in (poster, info.get("poster_alt")):
+            if not url:
+                continue
+            path = None
+            try:
+                path = await prepare_hd_poster_with_logo(url)   # RRK logo ulla poster
+                m = await message.reply_photo(path or url, caption=text, reply_markup=markup,
+                                              parse_mode=enums.ParseMode.HTML)
+                if m.photo:
+                    info["_photo_id"] = m.photo.file_id
+                await colorize(m, btn)
+                return m
+            except Exception as e:
                 logger.error(f"Poster send error: {e}")
+            finally:
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
     m = await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
                                  disable_web_page_preview=True)
     await colorize(m, btn)
@@ -486,6 +512,7 @@ async def give_filter(client, message):
             InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", text, f"_{offset}_1"))
         ])
     if total_results > 1:
+        btn.append([InlineKeyboardButton("📤 Send All Files", callback_data=cbd("sendall#", text))])
         btn.append(filter_row(text))
 
     result_msg = await send_result(message, text, files, total_results, btn)
@@ -697,6 +724,8 @@ async def filter_select(client, query: CallbackQuery):
             InlineKeyboardButton(f"📚 Page 1/{total_pages}", callback_data="pages_info"),
             InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", search, f"_{offset}_1")),
         ])
+    if total_results > 1:
+        btn.append([InlineKeyboardButton("📤 Send All Files", callback_data=cbd("sendall#", search))])
     btn.append(filter_row(text))
 
     head = result_header(text, total_results, 1, label)
@@ -706,3 +735,58 @@ async def filter_select(client, query: CallbackQuery):
     except Exception as e:
         logger.error(f"Filter select error: {e}")
         await query.answer(f"✅ {label or 'All'}: {total_results} files")
+
+
+# ============================================================
+# CALLBACK: SEND ALL FILES (ee page-ile 10 files PM-il)
+# ============================================================
+@Client.on_callback_query(filters.regex(r"^sendall#"))
+async def send_all_files(client, query: CallbackQuery):
+    text = query.data.split("#", 1)[1]
+    res = await get_search_results(text, max_results=10)
+    files = res[0] if res else []
+    if not files:
+        return await query.answer("❌ Files illa / No files found!", show_alert=True)
+
+    uid = query.from_user.id
+
+    async def send_one(f):
+        name = btn_name(f.file_name)
+        cap = f"<code>{name}</code>"
+        if CUSTOM_FILE_CAPTION:
+            try:
+                cap = CUSTOM_FILE_CAPTION.format(file_name=name, file_size=get_size(f.file_size), file_caption="")
+            except Exception:
+                pass
+        await client.send_cached_media(uid, f.file_id, caption=cap, parse_mode=enums.ParseMode.HTML)
+
+    try:
+        await send_one(files[0])
+    except Exception:
+        return await query.answer(
+            "⚠️ ആദ്യം ബോട്ട് PM-ൽ Start ചെയ്യുക!\nPlease start the bot in PM first, then tap again.",
+            show_alert=True)
+
+    await query.answer(f"📤 {len(files)} files PM-il ayakkunnu...", show_alert=False)
+    sent = 1
+    for f in files[1:]:
+        await asyncio.sleep(1)
+        try:
+            await send_one(f)
+            sent += 1
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            try:
+                await send_one(f)
+                sent += 1
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Send all error: {e}")
+    try:
+        await client.send_message(uid, f"✅ <b>{sent} files ayachu!</b>\n🔍 <code>{text}</code>",
+                                  parse_mode=enums.ParseMode.HTML)
+    except Exception:
+        pass
+    await send_log_safe(client, f"📤 <b>#SendAll</b>\n👤 {query.from_user.mention} (<code>{uid}</code>)\n"
+                                f"🔍 <code>{text}</code>\n📦 Files: {sent}")
