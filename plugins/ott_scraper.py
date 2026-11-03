@@ -313,9 +313,12 @@ async def daily_ott_loop():
             logging.error(f"[OTT Loop Error]: {e}")
         await asyncio.sleep(600)  # every 10 min check
 
+# Group-il OTT auto post OFF (user request 2026-11-03). Thirike venamenkil Render env OTT_AUTO=on.
+OTT_AUTO = (os.environ.get("OTT_AUTO") or "off").strip().lower() in ("1", "on", "true", "yes")
+
 def _start_loop_once():
     global _LOOP_STARTED
-    if _LOOP_STARTED:
+    if _LOOP_STARTED or not OTT_AUTO:
         return
     try:
         asyncio.get_event_loop().create_task(daily_ott_loop())
