@@ -5,6 +5,7 @@ import asyncio
 import re
 import json
 import base64
+import html
 from Script import script
 from pyrogram import Client, filters, enums
 from pyrogram.errors import ChatAdminRequired, FloodWait
@@ -53,19 +54,21 @@ async def delete_group_request_after_pm(client, user_id, delay=10):
 from plugins.invite import share_row
 
 
-async def send_completion_message(client, user_id):
+async def send_completion_message(client, user_id, audio=False):
     """File ayachu kazhinjal thazhe attractive thank you msg ayakkunnu"""
     success_txt = (
         "✨ ━━━━━━━━━━━━━━━━━━━━━━ ✨\n"
         "🍿 <b>ഫയലുകൾ വിജയകരമായി അയച്ചിട്ടുണ്ട്!</b>\n"
         "<i>Files delivered successfully!</i>\n"
         "✨ ━━━━━━━━━━━━━━━━━━━━━━ ✨\n\n"
-        "🎉 <b>താങ്കൾ തിരഞ്ഞ സിനിമയുടെ ഫയലുകൾ ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
-        "<i>Your requested movie files are ready for you.</i>\n\n"
+        + ("🎵 <b>താങ്കൾ തിരഞ്ഞ പാട്ട് ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
+           "<i>Your requested song is ready for you.</i>\n\n" if audio else
+           "🎉 <b>താങ്കൾ തിരഞ്ഞ സിനിമയുടെ ഫയലുകൾ ഇപ്പോൾ ലഭ്യമാണ്.</b>\n"
+           "<i>Your requested movie files are ready for you.</i>\n\n") +
         "💬 <b>താങ്കളുടെ വിലയേറിയ അഭിപ്രായങ്ങളും നിർദ്ദേശങ്ങളും അഡ്മിനെ അറിയിക്കുക.</b>\n"
         "<i>Feel free to share your valuable feedback and suggestions with the admin.</i>\n\n"
         "❤️ <b>RRK Movies AutoBot തിരഞ്ഞെടുത്തതിന് നന്ദി!</b>\n"
-        "🍿 <b>Happy Watching & Enjoy Your Movie!</b>\n\n"
+        + ("🎧 <b>Happy Listening!</b>\n\n" if audio else "🍿 <b>Happy Watching & Enjoy Your Movie!</b>\n\n") +
         "📢 <b>കൂടുതൽ പുത്തൻ സിനിമകൾക്കും വിവരങ്ങൾക്കുമായി ഞങ്ങളുടെ ചാനലിൽ അംഗമാകൂ:</b>\n"
         "<i>Stay tuned to our official channel for latest updates!</i>"
     )
@@ -133,7 +136,7 @@ async def start(client, message):
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
-        await message.reply(script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME), reply_markup=reply_markup)
+        await message.reply(script.START_TXT.format(message.from_user.mention if message.from_user else message.chat.title, temp.U_NAME, temp.B_NAME), reply_markup=reply_markup, parse_mode=enums.ParseMode.HTML)
         await asyncio.sleep(2)
         if not await db.get_chat(message.chat.id):
             total = await client.get_chat_members_count(message.chat.id)
@@ -264,7 +267,7 @@ async def start(client, message):
             f_caption = msg.get("caption", "")
             if BATCH_FILE_CAPTION:
                 try:
-                    f_caption = BATCH_FILE_CAPTION.format(file_name='' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+                    f_caption = BATCH_FILE_CAPTION.format(file_name='' if title is None else html.escape(title), file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
                 except Exception as e:
                     logger.exception(e)
             if f_caption is None:
@@ -274,6 +277,7 @@ async def start(client, message):
                     chat_id=message.from_user.id,
                     file_id=msg.get("file_id"),
                     caption=f_caption,
+                    parse_mode=enums.ParseMode.HTML,
                     protect_content=msg.get('protect', False),
                 )
             except FloodWait as e:
@@ -282,6 +286,7 @@ async def start(client, message):
                     chat_id=message.from_user.id,
                     file_id=msg.get("file_id"),
                     caption=f_caption,
+                    parse_mode=enums.ParseMode.HTML,
                     protect_content=msg.get('protect', False),
                 )
             except Exception as e:
@@ -408,10 +413,10 @@ async def start(client, message):
             f_caption = f"<code>{title}</code>"
             if CUSTOM_FILE_CAPTION:
                 try:
-                    f_caption = CUSTOM_FILE_CAPTION.format(file_name=title)
+                    f_caption = CUSTOM_FILE_CAPTION.format(file_name=html.escape(title or ''), file_size='', file_caption='')
                 except:
                     pass
-            await msg.edit_caption(f_caption)
+            await msg.edit_caption(f_caption, parse_mode=enums.ParseMode.HTML)
 
             try:
                 u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
@@ -432,7 +437,7 @@ async def start(client, message):
             except Exception as e:
                 logger.error(f"Log Error: {e}")
 
-            await send_completion_message(client, message.from_user.id)
+            await send_completion_message(client, message.from_user.id, audio=(filetype.value == "audio"))
             asyncio.create_task(delete_group_request_after_pm(client, message.from_user.id, delay=10))
             return
         except:
@@ -444,7 +449,7 @@ async def start(client, message):
     f_caption = files.caption
     if CUSTOM_FILE_CAPTION:
         try:
-            f_caption = CUSTOM_FILE_CAPTION.format(file_name='' if title is None else title, file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
+            f_caption = CUSTOM_FILE_CAPTION.format(file_name='' if title is None else html.escape(title), file_size='' if size is None else size, file_caption='' if f_caption is None else f_caption)
         except Exception as e:
             logger.exception(e)
     if f_caption is None:
@@ -454,6 +459,7 @@ async def start(client, message):
         chat_id=message.from_user.id,
         file_id=file_id,
         caption=f_caption,
+        parse_mode=enums.ParseMode.HTML,
         protect_content=True if pre == 'filep' else False,
     )
 
@@ -476,7 +482,8 @@ async def start(client, message):
     except Exception as e:
         logger.error(f"Log Error: {e}")
 
-    await send_completion_message(client, message.from_user.id)
+    _is_audio = (getattr(files, "file_type", "") == "audio") or str(files.file_name or "").lower().endswith((".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg"))
+    await send_completion_message(client, message.from_user.id, audio=_is_audio)
     asyncio.create_task(delete_group_request_after_pm(client, message.from_user.id, delay=10))
 
 @Client.on_message(filters.command('channel') & filters.user(ADMINS))

@@ -13,7 +13,7 @@ class script(object):
 
 🔍 <b>സിനിമ വേണോ?</b> പേര് ഇവിടെ ടൈപ്പ് ചെയ്യുക, അല്ലെങ്കിൽ താഴെ <b>Search Movies</b> അമർത്തുക.
 
-😎 <i>Powered by @RRK_Movies</i>"""
+😎 <i>Powered by <a href="https://t.me/+Z_FD__rQ7bc3NDQ8">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a></i>"""
 
     HELP_TXT = """
 🙋🏻‍♂️   ഹലോ  {} 🤓
@@ -33,13 +33,13 @@ class script(object):
 /surprise - 🎲 ഒരു റാൻഡം സിനിമ
 /invite - 🎁 സുഹൃത്തുക്കളെ ക്ഷണിക്കാൻ
 
-😎 Powered by @RRK_Movies
+😎 Powered by <a href="https://t.me/+Z_FD__rQ7bc3NDQ8">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>
 
-©️ Maintained by @RRK_Movies"""
+©️ Maintained by <a href="https://t.me/+Z_FD__rQ7bc3NDQ8">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>"""
 
     ABOUT_TXT = """✯ 𝙼𝚈 𝙽𝙰𝙼𝙴: {}
-✯ 𝙲𝚁𝙴𝙰𝚃𝙾𝚁: <a href=https://t.me/RRK_Movies>RRK Movies</a>
-✯ 𝙲𝙷𝙰𝙽𝙽𝙴𝙻: @RRK_Movies
+✯ 𝙲𝚁𝙴𝙰𝚃𝙾𝚁: <a href="https://t.me/+Z_FD__rQ7bc3NDQ8">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>
+✯ 𝙲𝙷𝙰𝙽𝙽𝙴𝙻: <a href="https://t.me/+Z_FD__rQ7bc3NDQ8">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>
 ✯ 𝙻𝙸𝙱𝚁𝙰𝚁𝚈: 𝙿𝚈𝚁𝙾𝙶𝚁𝙰𝙼
 ✯ 𝙻𝙰𝙽𝙶𝚄𝙰𝙶𝙴: 𝙿𝚈𝚃𝙷𝙾𝙽 𝟹
 ✯ 𝙳𝙰𝚃𝙰 𝙱𝙰𝚂𝙴: 𝙼𝙾𝙽𝙶𝙾 𝙳𝙱
@@ -50,7 +50,7 @@ class script(object):
 - Source - https://github.com/8769ANURAG/EvaMaria  
 
 <b>CHANNEL:</b>
-- <a href=https://t.me/RRK_Movies>RRK Movies</a>"""
+- <a href="https://t.me/+Z_FD__rQ7bc3NDQ8">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>"""
 
     MANUELFILTER_TXT = """Help: <b>Filters</b>
 
