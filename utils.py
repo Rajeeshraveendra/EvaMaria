@@ -68,7 +68,7 @@ def clean_movie_title(query):
     return q
 
 async def get_poster(query, bulk=False, id=False, file=None):
-    omdb_key = os.environ.get("OMDB_API_KEY", "97960898")
+    omdb_key = os.environ.get("OMDB_API_KEY", "")
     
     if not id:
         cleaned_title = clean_movie_title(query)
