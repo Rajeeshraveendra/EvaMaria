@@ -454,8 +454,9 @@ async def give_filter(client, message):
     is_group = message.chat.type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]
     chat_title = message.chat.title if is_group else "Bot PM / Personal"
 
-    if AUTH_CHANNEL and not await is_subscribed(client, message):
-        return
+    if AUTH_CHANNEL and not is_group and not await is_subscribed(client, message):
+        from utils import join_markup, JOIN_TXT
+        return await message.reply_text(JOIN_TXT, reply_markup=join_markup(), parse_mode=enums.ParseMode.HTML)
 
     # ഗ്രൂപ്പ് സ്പാം ഡിലീറ്റ്
     if is_group:
@@ -788,6 +789,10 @@ async def send_all_files(client, query: CallbackQuery):
         return await query.answer("❌ Files illa / No files found!", show_alert=True)
 
     uid = query.from_user.id
+    if AUTH_CHANNEL and not await is_subscribed(client, query):
+        from utils import FSUB_LINK
+        await query.answer("🔒 ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ!", show_alert=True)
+        return
 
     async def send_one(f):
         name = btn_name(f.file_name)
