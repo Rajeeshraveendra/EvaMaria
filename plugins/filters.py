@@ -339,6 +339,8 @@ def _btn_json(b, style):
     d = {"text": b.text, "style": style}
     if b.url:
         d["url"] = b.url
+    elif getattr(b, "switch_inline_query_current_chat", None) is not None:
+        d["switch_inline_query_current_chat"] = b.switch_inline_query_current_chat
     elif b.callback_data is not None:
         d["callback_data"] = b.callback_data if isinstance(b.callback_data, str) else b.callback_data.decode()
     else:
