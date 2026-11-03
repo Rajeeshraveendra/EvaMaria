@@ -51,17 +51,25 @@ def _fsub_chat():
 
 
 async def is_subscribed(bot, query):
-    """User group/channel-il member aano ennu nokkunnu"""
+    """User group-il member aano ennu Bot API (HTTP) vazhi nokkunnu"""
     if not AUTH_CHANNEL:
         return True
     try:
-        user = await bot.get_chat_member(_fsub_chat(), query.from_user.id)
-    except UserNotParticipant:
-        return False
+        import requests
+        from info import BOT_TOKEN
+        uid = query.from_user.id
+        def call():
+            r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
+                             params={"chat_id": _fsub_chat(), "user_id": uid}, timeout=8)
+            return r.json()
+        d = await asyncio.get_event_loop().run_in_executor(None, call)
+        if not d.get("ok"):
+            logger.error(f"is_subscribed: {d.get('description')}")
+            return True     # check cheyyan pattiyillenkil block cheyyilla
+        return d["result"].get("status") not in ("left", "kicked")
     except Exception as e:
         logger.error(f"is_subscribed: {e}")
-        return True     # check cheyyan pattiyillenkil user-ne block cheyyilla
-    return user.status not in (enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.LEFT)
+        return True
 
 
 def join_markup(start_param=None, bot_username=None):
