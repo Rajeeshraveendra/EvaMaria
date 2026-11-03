@@ -40,18 +40,41 @@ class temp(object):
     B_NAME = None
     SETTINGS = {}
 
-async def is_subscribed(bot, query):
-    try:
-        user = await bot.get_chat_member(AUTH_CHANNEL, query.from_user.id)
-    except UserNotParticipant:
-        pass
-    except Exception as e:
-        logger.exception(e)
-    else:
-        if user.status != 'kicked':
-            return True
+FSUB_LINK = os.environ.get("AUTH_LINK", "https://t.me/RRK_Movies")
 
-    return False
+
+def _fsub_chat():
+    c = str(AUTH_CHANNEL).strip()
+    if re.fullmatch(r"-?\d+", c):
+        return int(c)
+    return c.lstrip("@").replace("https://t.me/", "")
+
+
+async def is_subscribed(bot, query):
+    """User group/channel-il member aano ennu nokkunnu"""
+    if not AUTH_CHANNEL:
+        return True
+    try:
+        user = await bot.get_chat_member(_fsub_chat(), query.from_user.id)
+    except UserNotParticipant:
+        return False
+    except Exception as e:
+        logger.error(f"is_subscribed: {e}")
+        return True     # check cheyyan pattiyillenkil user-ne block cheyyilla
+    return user.status not in (enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.LEFT)
+
+
+def join_markup(start_param=None, bot_username=None):
+    from pyrogram.types import InlineKeyboardMarkup
+    btn = [[InlineKeyboardButton("🎬 ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ", url=FSUB_LINK)]]
+    if start_param and bot_username:
+        btn.append([InlineKeyboardButton("🔄 ജോയിൻ ചെയ്തു, വീണ്ടും ശ്രമിക്കൂ",
+                                         url=f"https://t.me/{bot_username}?start={start_param}")])
+    return InlineKeyboardMarkup(btn)
+
+
+JOIN_TXT = ("🔒 <b>ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഞങ്ങളുടെ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ.</b>\n\n"
+            "ജോയിൻ ചെയ്ത ശേഷം 🔄 ബട്ടൺ അമർത്തൂ.")
 
 def clean_movie_title(query):
     """ഫയൽ നെയിമിലെ വേണ്ടാത്ത ചാനൽ ടാഗുകൾ, ക്വാളിറ്റി എന്നിവ നീക്കം ചെയ്യുന്നു"""
