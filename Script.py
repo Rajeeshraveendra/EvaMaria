@@ -28,6 +28,8 @@ class script(object):
 /info - യൂസർ വിവരങ്ങൾ
 /id - യൂസർ ഐഡി
 /stats - ഡാറ്റാബേസ് സ്റ്റാറ്റസ്
+/trending - 🔥 ഈ ആഴ്ച ട്രെൻഡിംഗ് സിനിമകൾ
+/myrequests - 📋 താങ്കളുടെ റിക്വസ്റ്റുകൾ
 
 😎 Powered by @RRK_Movies
 
