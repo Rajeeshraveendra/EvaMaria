@@ -44,6 +44,7 @@ IMDB = is_enabled((environ.get('IMDB', 'False')), True)
 SINGLE_BUTTON = is_enabled((environ.get('SINGLE_BUTTON', 'False')), False)
 FILE_LOG = is_enabled((environ.get('FILE_LOG', 'True')), True)
 GROUP_LINK = environ.get('AUTH_LINK', 'https://t.me/+Z_FD__rQ7bc3NDQ8')
+BOT_LINK = environ.get('BOT_LINK', 'https://t.me/RRK_Movies_AutoBot')
 _DEF_CAP = '⚡ <b>Uploaded By <a href="{link}">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a></b>\n\n📁 <b>File:</b> {file_name}'
 
 
@@ -52,12 +53,14 @@ def _fix_caption(cap):
     if not cap:
         return cap
     cap = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", cap, flags=re.S)
-    cap = re.sub(r"@RRK_Movies(?!_)", '<a href="%s">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>' % GROUP_LINK, cap)
+    cap = re.sub(r"@RRK_Movies(?!_)", '<a href="%s">𝗥𝗥𝗞 𝗠𝗼𝘃𝗶𝗲𝘀</a>' % BOT_LINK, cap)
+    # caption link group-il alla, bot-il pokanam
+    cap = cap.replace(GROUP_LINK, BOT_LINK).replace('https://t.me/+Z_FD__rQ7bc3NDQ8', BOT_LINK)
     return cap
 
 
-CUSTOM_FILE_CAPTION = _fix_caption(environ.get("CUSTOM_FILE_CAPTION", _DEF_CAP.replace("{link}", GROUP_LINK)))
-BATCH_FILE_CAPTION = _fix_caption(environ.get("BATCH_FILE_CAPTION", _DEF_CAP.replace("{link}", GROUP_LINK)))
+CUSTOM_FILE_CAPTION = _fix_caption(environ.get("CUSTOM_FILE_CAPTION", _DEF_CAP.replace("{link}", BOT_LINK)))
+BATCH_FILE_CAPTION = _fix_caption(environ.get("BATCH_FILE_CAPTION", _DEF_CAP.replace("{link}", BOT_LINK)))
 IMDB_TEMPLATE = environ.get("IMDB_TEMPLATE", "🏷 𝖳𝗂𝗍𝗅𝖾: <a href={url}>{title}</a> \n🔮 𝖸𝖾𝖺𝗋: {year} \n⭐️ 𝖱𝖺𝗍𝗂𝗇𝗀𝗌: {rating}/ 10 \n🎭 𝖦𝖾𝗇𝖾𝗋𝗌: {genres} \n\n🎊 𝖯𝗈𝗐𝖾𝗋𝖾朵 𝖡𝗒 [RRK Movies](https://t.me/+NoL3OkqPwBtiZjY0)")
 LONG_IMDB_DESCRIPTION = is_enabled(environ.get("LONG_IMDB_DESCRIPTION", "False"), False)
 SPELL_CHECK_REPLY = is_enabled(environ.get("SPELL_CHECK_REPLY", "True"), True)
