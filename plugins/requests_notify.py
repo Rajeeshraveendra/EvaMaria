@@ -83,7 +83,7 @@ async def notify_requesters(client, message):
         vili, karthavu, _p = await words(doc.get("user_id"))
         text = (
             f"🎉 <b>സന്തോഷവാർത്ത! / Good news!</b>\n\n"
-            f"🎬 {vili}, {karthavu} ചോദിച്ച <b>{name}</b> ഇപ്പോൾ ലഭ്യമാണ്!\n"
+            f"🎬 {vili}, ചോദിച്ച <b>{name}</b> ഇപ്പോൾ ലഭ്യമാണ്!\n"
             f"<i>The movie you requested is now available.</i>\n\n"
             f"👇 <i>താഴെയുള്ള ബട്ടൺ അമർത്തി ഫയലുകൾ എടുക്കൂ / Tap below to get the files</i>"
         )
