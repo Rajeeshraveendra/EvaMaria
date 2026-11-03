@@ -10,7 +10,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQ
 from database.ia_filterdb import get_search_results, get_file_details
 from database.connections_mdb import active_connection
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
-from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
+from info import BOT_TOKEN, ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 from plugins.requests_notify import add_request
 from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_from_name, fetch_json
 
@@ -275,12 +275,16 @@ async def send_result(message, query, files, total_results, btn):
             if not url:
                 continue
             try:
-                return await message.reply_photo(url, caption=text, reply_markup=markup,
-                                                 parse_mode=enums.ParseMode.HTML)
+                m = await message.reply_photo(url, caption=text, reply_markup=markup,
+                                              parse_mode=enums.ParseMode.HTML)
+                await colorize(m, btn)
+                return m
             except Exception as e:
                 logger.error(f"Poster send error: {e}")
-    return await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
-                                    disable_web_page_preview=True)
+    m = await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
+                                 disable_web_page_preview=True)
+    await colorize(m, btn)
+    return m
 
 
 def keep_details(msg):
@@ -292,9 +296,60 @@ def keep_details(msg):
 
 async def edit_result(msg, text, markup):
     if msg.photo:
-        return await msg.edit_caption(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
-    return await msg.edit_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
-                               disable_web_page_preview=True)
+        m = await msg.edit_caption(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+    else:
+        m = await msg.edit_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
+                                disable_web_page_preview=True)
+    await colorize(msg, markup.inline_keyboard)
+    return m
+
+
+# ============================================================
+# COLOUR BUTTONS (Bot API 9.4 "style": primary = blue, success = green)
+# Pyrogram-il style illa, athukondu send cheytha shesham HTTP Bot API vazhi
+# reply_markup maathram colour aakki edit cheyyunnu. Fail aayaal grey thanne.
+# ============================================================
+def _btn_json(b, style):
+    d = {"text": b.text, "style": style}
+    if b.url:
+        d["url"] = b.url
+    elif b.callback_data is not None:
+        d["callback_data"] = b.callback_data if isinstance(b.callback_data, str) else b.callback_data.decode()
+    else:
+        return None
+    return d
+
+
+async def colorize(msg, btn):
+    if not msg or not BOT_TOKEN:
+        return
+    styles = ("primary", "success")
+    rows, k = [], 0
+    for row in btn:
+        r = []
+        for b in row:
+            j = _btn_json(b, styles[k % 2])
+            k += 1
+            if j:
+                r.append(j)
+        if r:
+            rows.append(r)
+    payload = json.dumps({
+        "chat_id": msg.chat.id,
+        "message_id": msg.id,
+        "reply_markup": {"inline_keyboard": rows},
+    }).encode()
+
+    def post():
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup",
+            data=payload, headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req, timeout=8).read()
+        except Exception as e:
+            logger.warning(f"Colour buttons failed: {e}")
+
+    await asyncio.get_event_loop().run_in_executor(None, post)
 
 
 def filter_row(text):
@@ -518,6 +573,7 @@ async def spelling_click_handler(client, query: CallbackQuery):
         reply_markup=InlineKeyboardMarkup(btn),
         parse_mode=enums.ParseMode.HTML
     )
+    await colorize(query.message, btn)
     await query.answer()
 
 
@@ -614,6 +670,7 @@ async def filter_menu(client, query: CallbackQuery):
     rows.append([InlineKeyboardButton("🔙 എല്ലാം / All", callback_data=cbd("fsel#all#", text))])
     try:
         await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(rows))
+        await colorize(query.message, rows)
     except Exception as e:
         logger.error(f"Filter menu error: {e}")
     await query.answer()
