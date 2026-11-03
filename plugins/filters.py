@@ -12,6 +12,7 @@ from database.connections_mdb import active_connection
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from info import ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 from plugins.requests_notify import add_request
+from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_from_name, fetch_json
 
 logger = logging.getLogger(__name__)
 
@@ -129,31 +130,171 @@ def cbd(prefix, text, suffix=""):
     return f"{prefix}{text}{suffix}"
 
 
+def btn_name(raw_name):
+    """ബട്ടണിൽ മുഴുവൻ പേര് കാണിക്കാൻ: [tags], @handles, ._- മാറ്റുന്നു"""
+    n = re.sub(r'\[[^\]]*\]', ' ', raw_name or '')
+    n = re.sub(r'(?i)@(?!rrk_movies\b)\w+', ' ', n)
+    n = re.sub(r'(?i)\b(?:www\.)\S+', ' ', n)
+    n = re.sub(r'\.(mkv|mp4|avi|webm|m4v)$', '', n.strip(), flags=re.I)
+    n = re.sub(r'[_.]+', ' ', n)
+    n = re.sub(r'\s*-\s*', ' - ', n)
+    n = re.sub(r'\s+', ' ', n).strip(' -')
+    if len(n) > 60:
+        n = n[:58] + '..'
+    return n or (raw_name or '')
+
+
 def build_file_buttons(files):
     btn = []
     for file in files:
-        raw_name = file.file_name
-        size = get_size(file.file_size)
-        audio = get_audio_tag(raw_name)
-        quality = get_quality_tag(raw_name)
-
-        cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
-        cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
-        cleaned_name = re.sub(' +', ' ', cleaned_name)
-
-        tag_parts = [size]
-        if audio:
-            tag_parts.append(audio)
-        if quality:
-            tag_parts.append(quality)
-        tag_str = " | ".join(tag_parts)
-
-        if len(cleaned_name) > 20:
-            cleaned_name = cleaned_name[:18] + ".."
-
-        btn.append([InlineKeyboardButton(f"🎬 [{tag_str}] {cleaned_name}",
-                                         url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+        label = f"《{get_size(file.file_size)}》 {btn_name(file.file_name)}"
+        btn.append([InlineKeyboardButton(label, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
     return btn
+
+
+def result_header(text, total_results, page=1, label=""):
+    total_pages = max(1, (total_results + 9) // 10)
+    head = (
+        f"🍂 <b>Movie Name :</b> <code>{text}</code>\n"
+        f"🗳 <b>Total Results :</b> <code>{total_results}</code>\n"
+        f"📚 <b>Total Pages :</b> <code>{page}/{total_pages}</code>\n"
+    )
+    if label:
+        head += f"🔎 <b>Filter :</b> {label}\n"
+    head += "\n🔻 <b>Tap On The File Button Below And Then Start To Download</b> 🔻"
+    return head
+
+
+# ============================================================
+# SEARCH RESULT: IMDb DETAILS (poster, rating, story)
+# ============================================================
+IMDB_CACHE = {}
+
+
+def _norm(t):
+    return re.sub(r"[^a-z0-9]+", "", str(t or "").lower())
+
+
+def pick_movie(query, files):
+    """Thettaya movie details varaathirikkan: query-yude athe peru ulla file
+    undenkil athu; illenkil ella file-um ore movie aanenkil athu; allenkil None"""
+    q = _norm(re.sub(r"\b(19|20)\d{2}\b", "", query))
+    found = []
+    for f in files:
+        title, year = extract_movie_info(f.file_name)
+        if title != "Movie":
+            found.append((title, year, lang_hint_from_name(f.file_name)))
+    exact = [x for x in found if _norm(x[0]) == q]
+    pool = exact or (found if len({_norm(x[0]) for x in found}) == 1 else [])
+    if not pool:
+        return None, None, None
+    year = next((x[1] for x in pool if x[1]), None)
+    lang = next((x[2] for x in pool if x[2]), None)
+    return pool[0][0], year, lang
+
+
+def details_match(info, title, year, lang):
+    """IMDb-il ninnu kittiya movie sherikkum ithu thanneyano ennu urappikkunnu"""
+    if not info or _norm(info.get("title")) != _norm(title):
+        return False
+    iy = re.search(r"(19|20)\d{2}", str(info.get("year") or ""))
+    if year:
+        return bool(iy) and abs(int(iy.group(0)) - int(year)) <= 1
+    if lang:
+        return lang.lower() in str(info.get("language") or "").lower()
+    return False
+
+
+async def get_search_details(query, files):
+    title, year, lang = pick_movie(query, files)
+    if not title:
+        return None
+    key = f"{_norm(title)}_{year}"
+    if key in IMDB_CACHE:
+        return IMDB_CACHE[key]
+    info = None
+    try:
+        info = await asyncio.wait_for(get_imdb_details(title, year, lang), timeout=12)
+        if info and info.get("imdb_id"):
+            def plot():
+                try:
+                    d = fetch_json(f"https://www.omdbapi.com/?apikey={OMDB_API_KEY}&i={info['imdb_id']}&plot=short")
+                    p = d.get("Plot")
+                    return p if p and p != "N/A" else None
+                except Exception:
+                    return None
+            info["plot"] = await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, plot), timeout=8)
+    except Exception as e:
+        logger.error(f"Search IMDb error: {e}")
+    if not details_match(info, title, year, lang):
+        info = None
+    if len(IMDB_CACHE) > 300:
+        IMDB_CACHE.clear()
+    IMDB_CACHE[key] = info
+    return info
+
+
+def _esc(t):
+    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def details_block(info):
+    if not info or not info.get("title"):
+        return ""
+    ok = lambda v: v and str(v) != "N/A"
+    t = f"🎬 <b>{_esc(info['title'])}</b>"
+    if ok(info.get("year")):
+        t += f" ({_esc(info['year'])})"
+    t += "\n"
+    if ok(info.get("rating")):
+        t += f"⭐ <b>IMDb :</b> {_esc(info['rating'])}/10\n"
+    if ok(info.get("genres")):
+        t += f"🎭 <b>Genre :</b> {_esc(info['genres'])}\n"
+    if ok(info.get("language")):
+        t += f"🗣 <b>Language :</b> {_esc(info['language'])}\n"
+    if ok(info.get("runtime")):
+        t += f"⏱ <b>Runtime :</b> {_esc(info['runtime'])}\n"
+    if ok(info.get("plot")):
+        p = info["plot"]
+        if len(p) > 300:
+            p = p[:297].rsplit(" ", 1)[0] + "..."
+        t += f"📖 <b>Story :</b> <i>{_esc(p)}</i>\n"
+    if info.get("url"):
+        t += f"🔗 <a href=\"{info['url']}\">IMDb Page</a>\n"
+    return t + "━━━━━━━━━━━━━━━\n"
+
+
+async def send_result(message, query, files, total_results, btn):
+    """Poster undenkil photo + caption, illenkil text"""
+    info = await get_search_details(query, files)
+    text = details_block(info) + result_header(query, total_results)
+    markup = InlineKeyboardMarkup(btn)
+    poster = (info or {}).get("poster")
+    if poster and len(text) <= 1024:
+        for url in (poster, (info or {}).get("poster_alt")):
+            if not url:
+                continue
+            try:
+                return await message.reply_photo(url, caption=text, reply_markup=markup,
+                                                 parse_mode=enums.ParseMode.HTML)
+            except Exception as e:
+                logger.error(f"Poster send error: {e}")
+    return await message.reply_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
+                                    disable_web_page_preview=True)
+
+
+def keep_details(msg):
+    """Pazhaya message-ile details bhagam (header-inu munpu) thirike edukkunnu"""
+    old = (msg.caption.html if msg.caption else (msg.text.html if msg.text else "")) or ""
+    i = old.find("━━━━━━━━━━━━━━━")
+    return old[: i + 16] if i != -1 else ""
+
+
+async def edit_result(msg, text, markup):
+    if msg.photo:
+        return await msg.edit_caption(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML)
+    return await msg.edit_text(text, reply_markup=markup, parse_mode=enums.ParseMode.HTML,
+                               disable_web_page_preview=True)
 
 
 def filter_row(text):
@@ -281,44 +422,18 @@ async def give_filter(client, message):
     )
     await send_log_safe(client, log_txt)
 
-    btn = []
-    for file in files:
-        raw_name = file.file_name
-        size = get_size(file.file_size)
-        audio = get_audio_tag(raw_name)
-        quality = get_quality_tag(raw_name)
-
-        cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
-        cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
-        cleaned_name = re.sub(' +', ' ', cleaned_name)
-
-        tag_parts = [size]
-        if audio:
-            tag_parts.append(audio)
-        if quality:
-            tag_parts.append(quality)
-        tag_str = " | ".join(tag_parts)
-
-        if len(cleaned_name) > 20:
-            cleaned_name = cleaned_name[:18] + ".."
-
-        btn_caption = f"🎬 [{tag_str}] {cleaned_name}"
-        btn.append([InlineKeyboardButton(btn_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+    btn = build_file_buttons(files)
 
     if offset != "":
         total_pages = (total_results + 9) // 10
         btn.append([
-            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages_info"),
+            InlineKeyboardButton(f"📚 Page 1/{total_pages}", callback_data="pages_info"),
             InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", text, f"_{offset}_1"))
         ])
     if total_results > 1:
         btn.append(filter_row(text))
 
-    result_msg = await message.reply_text(
-        f"<b>Here is the result for:</b> <code>{text}</code>",
-        reply_markup=InlineKeyboardMarkup(btn),
-        parse_mode=enums.ParseMode.HTML
-    )
+    result_msg = await send_result(message, text, files, total_results, btn)
 
     if is_group:
         USER_GRP_MSGS[userid] = {
@@ -387,39 +502,19 @@ async def spelling_click_handler(client, query: CallbackQuery):
         )
 
     # 2. File undenkil list cheyyunnu
-    btn = []
-    for file in files:
-        raw_name = file.file_name
-        size = get_size(file.file_size)
-        audio = get_audio_tag(raw_name)
-        quality = get_quality_tag(raw_name)
-
-        cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
-        cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
-        cleaned_name = re.sub(' +', ' ', cleaned_name)
-
-        tag_parts = [size]
-        if audio:
-            tag_parts.append(audio)
-        if quality:
-            tag_parts.append(quality)
-        tag_str = " | ".join(tag_parts)
-
-        if len(cleaned_name) > 20:
-            cleaned_name = cleaned_name[:18] + ".."
-
-        btn_caption = f"🎬 [{tag_str}] {cleaned_name}"
-        btn.append([InlineKeyboardButton(btn_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+    btn = build_file_buttons(files)
 
     if offset != "":
         total_pages = (total_results + 9) // 10
         btn.append([
-            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages_info"),
+            InlineKeyboardButton(f"📚 Page 1/{total_pages}", callback_data="pages_info"),
             InlineKeyboardButton("Next ⏩", callback_data=f"next_{movie_name}_{offset}_1")
         ])
 
+    info = await get_search_details(movie_name, files)
     await query.message.edit_text(
-        f"<b>Here is the result for:</b> <code>{movie_name}</code>",
+        details_block(info) + result_header(movie_name, total_results),
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(btn),
         parse_mode=enums.ParseMode.HTML
     )
@@ -449,34 +544,12 @@ async def next_page_handler(client, query: CallbackQuery):
     total_pages = (total_results + 9) // 10
     new_page = curr_page + 1
 
-    btn = []
-    for file in files:
-        raw_name = file.file_name
-        size = get_size(file.file_size)
-        audio = get_audio_tag(raw_name)
-        quality = get_quality_tag(raw_name)
-
-        cleaned_name = re.sub(r'\[.*?\]|\(.*?\)', '', raw_name)
-        cleaned_name = re.sub(r'[_.-]', ' ', cleaned_name).strip()
-        cleaned_name = re.sub(' +', ' ', cleaned_name)
-
-        tag_parts = [size]
-        if audio:
-            tag_parts.append(audio)
-        if quality:
-            tag_parts.append(quality)
-        tag_str = " | ".join(tag_parts)
-
-        if len(cleaned_name) > 20:
-            cleaned_name = cleaned_name[:18] + ".."
-
-        btn_caption = f"🎬 [{tag_str}] {cleaned_name}"
-        btn.append([InlineKeyboardButton(btn_caption, url=f"https://t.me/{temp.U_NAME}?start=file_{file.file_id}")])
+    btn = build_file_buttons(files)
 
     page_btns = []
     prev_offset = max(0, int(offset) - 10)
     page_btns.append(InlineKeyboardButton("⏪ Back", callback_data=cbd("next_", text, f"_{prev_offset}_{new_page - 2}")))
-    page_btns.append(InlineKeyboardButton(f"{new_page}/{total_pages} Pages", callback_data="pages_info"))
+    page_btns.append(InlineKeyboardButton(f"📚 Page {new_page}/{total_pages}", callback_data="pages_info"))
 
     if next_offset != "":
         page_btns.append(InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", text, f"_{next_offset}_{new_page}")))
@@ -484,7 +557,12 @@ async def next_page_handler(client, query: CallbackQuery):
     btn.append(page_btns)
 
     try:
-        await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(btn))
+        disp = text
+        for _lbl, _pat in list(LANG_FILTERS.values()) + list(QUAL_FILTERS.values()):
+            if disp.endswith(" " + _pat):
+                disp = disp[: -len(_pat) - 1]
+        await edit_result(query.message, keep_details(query.message) + result_header(disp, total_results, new_page),
+                          InlineKeyboardMarkup(btn))
         await query.answer()
     except Exception as e:
         logger.error(f"Page edit error: {e}")
@@ -559,17 +637,14 @@ async def filter_select(client, query: CallbackQuery):
     if offset != "":
         total_pages = (total_results + 9) // 10
         btn.append([
-            InlineKeyboardButton(f"1/{total_pages} Pages", callback_data="pages_info"),
+            InlineKeyboardButton(f"📚 Page 1/{total_pages}", callback_data="pages_info"),
             InlineKeyboardButton("Next ⏩", callback_data=cbd("next_", search, f"_{offset}_1")),
         ])
     btn.append(filter_row(text))
 
-    head = f"<b>Here is the result for:</b> <code>{text}</code>"
-    if label:
-        head += f"\n🔎 <b>Filter:</b> {label} ({total_results})"
+    head = result_header(text, total_results, 1, label)
     try:
-        await query.message.edit_text(head, reply_markup=InlineKeyboardMarkup(btn),
-                                      parse_mode=enums.ParseMode.HTML)
+        await edit_result(query.message, keep_details(query.message) + head, InlineKeyboardMarkup(btn))
         await query.answer(f"✅ {label or 'All'}: {total_results} files")
     except Exception as e:
         logger.error(f"Filter select error: {e}")
