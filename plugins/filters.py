@@ -14,6 +14,7 @@ from database.connections_mdb import active_connection
 from utils import get_settings, get_size, is_subscribed, save_group_settings, temp
 from info import BOT_TOKEN, ADMINS, AUTH_CHANNEL, CUSTOM_FILE_CAPTION, PICS, LOG_CHANNEL
 from plugins.requests_notify import add_request
+from plugins.gender import words
 from plugins.auto_post import extract_movie_info, get_imdb_details, lang_hint_from_name, fetch_json, prepare_hd_poster_with_logo
 
 logger = logging.getLogger(__name__)
@@ -447,9 +448,10 @@ async def give_filter(client, message):
             for mov in suggestions:
                 btn.append([InlineKeyboardButton(f"🎬 {mov}", callback_data=f"spolling#{mov}")])
 
+            vili, karthavu, _p = await words(userid)
             suggest_text = (
-                f"👋 <b>ഹലോ / Hello {user_mention},</b>\n\n"
-                f"❓ <b>നിങ്ങൾ ഉദ്ദേശിച്ചത് താഴെ പറയുന്നവയിൽ ഏതെങ്കിലും ആണോ?</b>\n"
+                f"👋 <b>ഹലോ {vili} {user_mention},</b>\n\n"
+                f"❓ <b>{karthavu} ഉദ്ദേശിച്ചത് താഴെ പറയുന്നവയിൽ ഏതെങ്കിലും ആണോ?</b>\n"
                 f"<i>Did you mean one of the movies listed below?</i>\n\n"
                 f"👇 <i>ശരിയായ സിനിമയിൽ ടാപ്പ് ചെയ്യുക / Tap on the correct movie:</i>"
             )
@@ -476,10 +478,11 @@ async def give_filter(client, message):
             [InlineKeyboardButton("📥 Request ചെയ്യുക / Request", callback_data=cbd("mreq#", text))],
             [InlineKeyboardButton("🔍 Search Google", url=f"https://www.google.com/search?q={urllib.parse.quote(text)}+movie")],
         ]
+        vili, karthavu, _p = await words(userid)
         err_text = (
             f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല / Movie Not Found!</b>\n\n"
-            f"👋 <b>ഹലോ / Hello {user_mention},</b>\n"
-            f"📌 <b>നിങ്ങൾ തിരഞ്ഞത് / Your Query:</b> <code>{text}</code>\n\n"
+            f"👋 <b>ഹലോ {vili} {user_mention},</b>\n"
+            f"📌 <b>{karthavu} തിരഞ്ഞത് / Your Query:</b> <code>{text}</code>\n\n"
             f"💡 <i>ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.</i>\n"
             f"<i>Please check your spelling and try again.</i>"
         )
