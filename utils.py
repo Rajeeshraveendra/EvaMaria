@@ -50,39 +50,61 @@ def _fsub_chat():
     return c.lstrip("@").replace("https://t.me/", "")
 
 
-async def is_subscribed(bot, query):
-    """User group-il member aano ennu Bot API (HTTP) vazhi nokkunnu"""
-    if not AUTH_CHANNEL:
-        return True
+# Extra force-sub channel: RRK Status (status videos / MP3). Env FSUB_EXTRA="id|link" ; "off" aakkiyal disable
+_EXTRA = os.environ.get("FSUB_EXTRA", "-1001186898120|https://t.me/rajeeshraveendrakamballur").strip()
+EXTRA_CHATS = []
+if _EXTRA and _EXTRA.lower() != "off":
+    for part in _EXTRA.split(","):
+        cid, _, link = part.strip().partition("|")
+        if cid:
+            EXTRA_CHATS.append((int(cid) if re.fullmatch(r"-?\d+", cid) else cid, link or ""))
+
+
+async def _member(chat, uid):
+    import requests
+    from info import BOT_TOKEN
+    def call():
+        r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
+                         params={"chat_id": chat, "user_id": uid}, timeout=8)
+        return r.json()
     try:
-        import requests
-        from info import BOT_TOKEN
-        uid = query.from_user.id
-        def call():
-            r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
-                             params={"chat_id": _fsub_chat(), "user_id": uid}, timeout=8)
-            return r.json()
         d = await asyncio.get_event_loop().run_in_executor(None, call)
-        if not d.get("ok"):
-            logger.error(f"is_subscribed: {d.get('description')}")
-            return True     # check cheyyan pattiyillenkil block cheyyilla
-        return d["result"].get("status") not in ("left", "kicked")
     except Exception as e:
         logger.error(f"is_subscribed: {e}")
         return True
+    if not d.get("ok"):
+        logger.error(f"is_subscribed {chat}: {d.get('description')}")
+        return True     # check cheyyan pattiyillenkil (bot admin alla) block cheyyilla
+    return d["result"].get("status") not in ("left", "kicked")
+
+
+async def is_subscribed(bot, query):
+    """User group-ilum RRK Status channel-ilum member aano ennu Bot API (HTTP) vazhi nokkunnu"""
+    if not AUTH_CHANNEL and not EXTRA_CHATS:
+        return True
+    uid = query.from_user.id
+    if AUTH_CHANNEL and not await _member(_fsub_chat(), uid):
+        return False
+    for chat, _ in EXTRA_CHATS:
+        if not await _member(chat, uid):
+            return False
+    return True
 
 
 def join_markup(start_param=None, bot_username=None):
     from pyrogram.types import InlineKeyboardMarkup
     btn = [[InlineKeyboardButton("🎬 ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ", url=FSUB_LINK)]]
+    for _, link in EXTRA_CHATS:
+        if link:
+            btn.append([InlineKeyboardButton("🎵 RRK Status ചാനലിൽ ജോയിൻ ചെയ്യൂ", url=link)])
     if start_param and bot_username:
         btn.append([InlineKeyboardButton("🔄 ജോയിൻ ചെയ്തു, വീണ്ടും ശ്രമിക്കൂ",
                                          url=f"https://t.me/{bot_username}?start={start_param}")])
     return InlineKeyboardMarkup(btn)
 
 
-JOIN_TXT = ("🔒 <b>ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഞങ്ങളുടെ ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ.</b>\n\n"
-            "ജോയിൻ ചെയ്ത ശേഷം 🔄 ബട്ടൺ അമർത്തൂ.")
+JOIN_TXT = ("🔒 <b>ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഞങ്ങളുടെ ഗ്രൂപ്പിലും RRK Status ചാനലിലും ജോയിൻ ചെയ്യൂ.</b>\n\n"
+            "രണ്ടിലും ജോയിൻ ചെയ്ത ശേഷം 🔄 ബട്ടൺ അമർത്തൂ.")
 
 def clean_movie_title(query):
     """ഫയൽ നെയിമിലെ വേണ്ടാത്ത ചാനൽ ടാഗുകൾ, ക്വാളിറ്റി എന്നിവ നീക്കം ചെയ്യുന്നു"""

@@ -791,7 +791,7 @@ async def send_all_files(client, query: CallbackQuery):
     uid = query.from_user.id
     if AUTH_CHANNEL and not await is_subscribed(client, query):
         from utils import FSUB_LINK
-        await query.answer("🔒 ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ!", show_alert=True)
+        await query.answer("🔒 ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഗ്രൂപ്പിലും RRK Status ചാനലിലും (@rajeeshraveendrakamballur) ജോയിൻ ചെയ്യൂ!", show_alert=True)
         return
 
     async def send_one(f):
