@@ -451,7 +451,7 @@ async def give_filter(client, message):
             vili, karthavu, _p = await words(userid)
             suggest_text = (
                 f"👋 <b>ഹലോ {vili} {user_mention},</b>\n\n"
-                f"❓ <b>{karthavu} ഉദ്ദേശിച്ചത് താഴെ പറയുന്നവയിൽ ഏതെങ്കിലും ആണോ?</b>\n"
+                f"❓ <b>ഉദ്ദേശിച്ചത് താഴെ പറയുന്നവയിൽ ഏതെങ്കിലും ആണോ?</b>\n"
                 f"<i>Did you mean one of the movies listed below?</i>\n\n"
                 f"👇 <i>ശരിയായ സിനിമയിൽ ടാപ്പ് ചെയ്യുക / Tap on the correct movie:</i>"
             )
@@ -482,7 +482,7 @@ async def give_filter(client, message):
         err_text = (
             f"❌ <b>സിനിമ കണ്ടെത്താനായില്ല / Movie Not Found!</b>\n\n"
             f"👋 <b>ഹലോ {vili} {user_mention},</b>\n"
-            f"📌 <b>{karthavu} തിരഞ്ഞത് / Your Query:</b> <code>{text}</code>\n\n"
+            f"📌 <b>തിരഞ്ഞത് / Your Query:</b> <code>{text}</code>\n\n"
             f"💡 <i>ദയവായി ശരിയായ സ്പെല്ലിംഗ് പരിശോധിച്ച് വീണ്ടും അയക്കുക.</i>\n"
             f"<i>Please check your spelling and try again.</i>"
         )
