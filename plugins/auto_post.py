@@ -33,7 +33,7 @@ UPDATE_CHANNEL = int(
 
 OMDB_API_KEY = os.environ.get(
     "OMDB_API_KEY",
-    "97960898"
+    ""
 )
 
 TMDB_API_KEY = (os.environ.get("TMDB_API_KEY") or "").strip()
