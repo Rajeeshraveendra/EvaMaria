@@ -45,7 +45,7 @@ LANG_NAMES = {
 
 LOGO_PATH = "assets/rrk_logo.png"
 
-UPDATES_CHANNEL_LINK = "https://t.me/RRK_Movies"
+UPDATES_CHANNEL_LINK = "https://t.me/+Z_FD__rQ7bc3NDQ8"
 SUPPORT_GROUP_LINK = "https://t.me/RRK_Movies_Group"
 ADMIN_LINK = "https://t.me/RajeeshRaveendra"
 
