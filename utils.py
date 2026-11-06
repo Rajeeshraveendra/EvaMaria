@@ -93,18 +93,20 @@ async def is_subscribed(bot, query):
 
 def join_markup(start_param=None, bot_username=None):
     from pyrogram.types import InlineKeyboardMarkup
-    btn = [[InlineKeyboardButton("🎬 ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ", url=FSUB_LINK)]]
+    btn = [[InlineKeyboardButton("🎬 ഗ്രൂപ്പിൽ ജോയിൻ ചെയ്യൂ | Join Group", url=FSUB_LINK)]]
     for _, link in EXTRA_CHATS:
         if link:
-            btn.append([InlineKeyboardButton("🎵 RRK Status ചാനലിൽ ജോയിൻ ചെയ്യൂ", url=link)])
+            btn.append([InlineKeyboardButton("🎵 RRK Status ജോയിൻ | Join Channel", url=link)])
     if start_param and bot_username:
-        btn.append([InlineKeyboardButton("🔄 ജോയിൻ ചെയ്തു, വീണ്ടും ശ്രമിക്കൂ",
+        btn.append([InlineKeyboardButton("🔄 ജോയിൻ ചെയ്തു | Try Again",
                                          url=f"https://t.me/{bot_username}?start={start_param}")])
     return InlineKeyboardMarkup(btn)
 
 
 JOIN_TXT = ("🔒 <b>ഫയലുകൾ ലഭിക്കാൻ ആദ്യം ഞങ്ങളുടെ ഗ്രൂപ്പിലും RRK Status ചാനലിലും ജോയിൻ ചെയ്യൂ.</b>\n\n"
-            "രണ്ടിലും ജോയിൻ ചെയ്ത ശേഷം 🔄 ബട്ടൺ അമർത്തൂ.")
+            "<i>To get files, please join our group and the RRK Status channel first.</i>\n\n"
+            "രണ്ടിലും ജോയിൻ ചെയ്ത ശേഷം 🔄 ബട്ടൺ അമർത്തൂ.\n"
+            "<i>After joining both, tap the 🔄 button.</i>")
 
 def clean_movie_title(query):
     """ഫയൽ നെയിമിലെ വേണ്ടാത്ത ചാനൽ ടാഗുകൾ, ക്വാളിറ്റി എന്നിവ നീക്കം ചെയ്യുന്നു"""
