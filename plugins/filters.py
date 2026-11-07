@@ -468,6 +468,14 @@ async def give_filter(client, message):
             except Exception:
                 pass
 
+    try:
+        from plugins.notices import get_notice
+        _nt = await get_notice(text)
+    except Exception:
+        _nt = None
+    if _nt:
+        return await message.reply_text(_nt, parse_mode=enums.ParseMode.HTML, quote=True)
+
     files, offset, total_results = await get_search_results(text, max_results=10)
 
     # 1. ഫയലുകൾ കിട്ടിയില്ലെങ്കിൽ (Dual Language Suggestions)
