@@ -480,6 +480,31 @@ async def give_filter(client, message):
 
     # 1. ഫയലുകൾ കിട്ടിയില്ലെങ്കിൽ (Dual Language Suggestions)
     if not files:
+        # OTT INFO: library-il illatha puthiya film -> theatre/OTT release date reply
+        try:
+            from plugins.ott_info import get_ott_info
+            _ott = await get_ott_info(text)
+        except Exception:
+            _ott = None
+        if _ott:
+            ott_text, ott_poster = _ott
+            ott_btn = InlineKeyboardMarkup([[InlineKeyboardButton("📥 Request ചെയ്യുക / Request", callback_data=cbd("mreq#", text))]])
+            try:
+                if ott_poster:
+                    ott_msg = await message.reply_photo(ott_poster, caption=ott_text, reply_markup=ott_btn, parse_mode=enums.ParseMode.HTML)
+                else:
+                    ott_msg = await message.reply_text(ott_text, reply_markup=ott_btn, parse_mode=enums.ParseMode.HTML)
+                await send_log_safe(client, f"📅 <b>#OTTInfo</b>\n👤 {user_mention}\n🔍 <code>{text}</code>")
+                if is_group:
+                    asyncio.create_task(safe_delete_messages(client, message.chat.id, [message.id, ott_msg.id], delay=120))
+                _ott_sent = True
+            except Exception as e:
+                _ott_sent = False
+                logger.warning(f"ott_info reply failed: {e}")
+            if _ott_sent:
+                message.stop_propagation()
+                return
+
         suggestions = await get_smart_suggestions(text)
 
         # സജഷനുകൾ കണ്ടെത്തിയാൽ
