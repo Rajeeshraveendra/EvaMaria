@@ -8,7 +8,7 @@ import base64
 import html
 from Script import script
 from pyrogram import Client, filters, enums
-from pyrogram.errors import ChatAdminRequired, FloodWait
+from pyrogram.errors import ChatAdminRequired, FloodWait, UserIsBlocked, InputUserDeactivated
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from database.ia_filterdb import Media, get_file_details, get_search_results, unpack_new_file_id
 from database.users_chats_db import db
@@ -455,13 +455,16 @@ async def start(client, message):
     if f_caption is None:
         f_caption = f"{title}"
 
-    await client.send_cached_media(
-        chat_id=message.from_user.id,
-        file_id=file_id,
-        caption=f_caption,
-        parse_mode=enums.ParseMode.HTML,
-        protect_content=True if pre == 'filep' else False,
-    )
+    try:
+        await client.send_cached_media(
+            chat_id=message.from_user.id,
+            file_id=file_id,
+            caption=f_caption,
+            parse_mode=enums.ParseMode.HTML,
+            protect_content=True if pre == 'filep' else False,
+        )
+    except (UserIsBlocked, InputUserDeactivated):
+        return  # user blocked the bot / deleted account
 
     try:
         u_info = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
